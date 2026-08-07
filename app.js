@@ -293,7 +293,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "76a43d03";
+window.__APP_V = "13934109";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -1582,6 +1582,7 @@ function readCampaignFromForm() {
     originCity: elements.originInput ? elements.originInput.value.trim() : state.campaign.originCity || "",
     productDescription: elements.productDescInput ? elements.productDescInput.value.trim() : state.campaign.productDescription || ""
   };
+  autoNameCampaign();
 }
 
 function campaignBriefStatus() {
@@ -1591,6 +1592,21 @@ function campaignBriefStatus() {
   if (!product) missing.push({ field: "product", label: "产品" });
   if (!markets) missing.push({ field: "markets", label: "目标市场" });
   return { ok: missing.length === 0, product, markets, missing };
+}
+
+// 种子活动的名字是建库时写死的「未配置开发活动」，此前没有任何代码改过它——
+// 用户把产品和市场都填好了，顶栏、标题栏和分析页的口径说明却还在说「未配置」，
+// 看着像是没保存成功。这里在定位齐了之后自动改成「产品 · 市场」。
+// 读 campaignBriefStatus() 而不是 state.campaign，是因为后者在表单为空时会兜底
+// 写入 "your product" / "United States"，拿它命名会造出一个假活动名。
+function autoNameCampaign() {
+  const list = state.management?.campaigns || [];
+  const target = list.find((c) => c.id === state.activeCampaignId) || list[0];
+  if (!target) return;
+  if (target.name && target.name !== "未配置开发活动") return; // 用户自己起过名就不动
+  const brief = campaignBriefStatus();
+  if (!brief.ok) return;
+  target.name = `${brief.product} · ${brief.markets}`;
 }
 
 function requireCampaignBrief(actionLabel = "继续") {
@@ -16240,6 +16256,9 @@ function autoPauseColdSequences() {
 function firstSendSteps() {
   const camp = state.campaign || {};
   const hasProduct = !!(camp.product || "").trim();
+  // 目标市场和产品一样是硬前置：第 2 步的 requireCampaignBrief 两个都要。
+  // 以前第 1 步只问产品就打勾，用户粘完整页搜索结果才被「缺目标市场」挡回来。
+  const hasMarkets = !!(camp.markets || "").trim();
   const hasLeads = (state.prospects || []).length > 0;
   const withEmail = (state.prospects || []).filter((p) => p.email).length;
   const mailReady = !!(state.settings?.senderEmail || "").trim();
@@ -16248,19 +16267,29 @@ function firstSendSteps() {
   return [
     {
       key: "product",
-      title: "说清你卖什么",
-      done: hasProduct,
-      need: "填一个具体产品（越具体越好，「无人机植保喷头」比「农业机械」强得多）",
+      title: hasProduct ? "说清卖到哪儿去" : "说清你卖什么",
+      done: hasProduct && hasMarkets,
+      need: hasProduct
+        ? "产品有了，还缺目标市场——不填的话下一步解析线索会被直接挡回来"
+        : "填一个具体产品（越具体越好，「无人机植保喷头」比「农业机械」强得多）",
       how: "填完就存，不用跳去别的页面",
       goto: "focus",
-      // 就地做：一个输入框 + 保存
-      inline: {
-        kind: "text",
-        field: "product",
-        placeholder: "例如：无人机植保喷头",
-        value: (camp.focusProduct || camp.product || "").trim(),
-        submit: "保存产品"
-      },
+      // 就地做：一个输入框 + 保存。产品填完自动换成目标市场，两个都齐了才打勾。
+      inline: hasProduct
+        ? {
+            kind: "text",
+            field: "markets",
+            placeholder: "例如：美国、加拿大、德国",
+            value: (camp.markets || "").trim(),
+            submit: "保存目标市场"
+          }
+        : {
+            kind: "text",
+            field: "product",
+            placeholder: "例如：无人机植保喷头",
+            value: (camp.focusProduct || camp.product || "").trim(),
+            submit: "保存产品"
+          },
       skippable: false
     },
     {
@@ -16353,8 +16382,19 @@ async function runFirstSendStep(field, value) {
     if (!(state.campaign.product || "").trim() || state.ui?.starterTemplate) state.campaign.product = text;
     if (state.ui?.starterTemplate) state.ui = { ...state.ui, starterTemplate: false };
     bindCampaignForm();
+    autoNameCampaign(); // 向导不走 readCampaignFromForm，得自己触发一次改名
     saveState();
-    return { ok: true, msg: `已锁定产品「${text}」，可以去找客户了` };
+    return { ok: true, msg: `已锁定产品「${text}」，接着填目标市场` };
+  }
+
+  if (field === "markets") {
+    const text = (value || "").trim();
+    if (!text) return { ok: false, msg: "先填一个目标市场再保存" };
+    state.campaign.markets = text;
+    bindCampaignForm();
+    autoNameCampaign(); // 向导不走 readCampaignFromForm，得自己触发一次改名
+    saveState();
+    return { ok: true, msg: `已锁定目标市场「${text}」，可以去找客户了` };
   }
 
   if (field === "leads") {
@@ -16488,8 +16528,10 @@ document.addEventListener(
     btn.dataset.busy = "1";
     btn.disabled = true;
     btn.textContent = "处理中…";
+    let ok = false;
     Promise.resolve(runFirstSendStep(field, value))
       .then((res) => {
+        ok = !!res?.ok;
         if (res?.msg) {
           addLog(res.msg);
           if (res.ok) runDone(res.msg);
@@ -16505,6 +16547,12 @@ document.addEventListener(
         btn.disabled = false;
         btn.textContent = label;
         render(); // 重渲染面板：做完的那步会自动打勾并收起
+        // 没跑成就把用户填的东西放回去。textarea 重渲染后一律是空的，
+        // 而这里装的往往是整页 Google 搜索结果——丢了就得回去重新复制一遍。
+        if (!ok && value) {
+          const back = document.querySelector(`[data-mkd-step-input="${field}"]`);
+          if (back && !back.value) back.value = value;
+        }
         renderLogs();
       });
   },
@@ -16784,3 +16832,9 @@ render = function () {
     console.error("[netprobe] 跟进徽章挂载失败", error);
   }
 };
+
+// 首屏补渲染：07 末尾那次 render() 跑的时候，本文件还没被拼进来，上面四层包装
+// 挂的六个面板（陪跑、潜客网络动作、发出第一封信、定位校准、追踪设置、跟进徽章）
+// 一个都不会出现，要等用户随手点一下触发重渲染才冒出来。新用户第一眼恰恰最需要
+// 「发出第一封信」，所以这里必须自己再渲染一次。
+render();

@@ -282,6 +282,7 @@ function readCampaignFromForm() {
     originCity: elements.originInput ? elements.originInput.value.trim() : state.campaign.originCity || "",
     productDescription: elements.productDescInput ? elements.productDescInput.value.trim() : state.campaign.productDescription || ""
   };
+  autoNameCampaign();
 }
 
 function campaignBriefStatus() {
@@ -291,6 +292,21 @@ function campaignBriefStatus() {
   if (!product) missing.push({ field: "product", label: "产品" });
   if (!markets) missing.push({ field: "markets", label: "目标市场" });
   return { ok: missing.length === 0, product, markets, missing };
+}
+
+// 种子活动的名字是建库时写死的「未配置开发活动」，此前没有任何代码改过它——
+// 用户把产品和市场都填好了，顶栏、标题栏和分析页的口径说明却还在说「未配置」，
+// 看着像是没保存成功。这里在定位齐了之后自动改成「产品 · 市场」。
+// 读 campaignBriefStatus() 而不是 state.campaign，是因为后者在表单为空时会兜底
+// 写入 "your product" / "United States"，拿它命名会造出一个假活动名。
+function autoNameCampaign() {
+  const list = state.management?.campaigns || [];
+  const target = list.find((c) => c.id === state.activeCampaignId) || list[0];
+  if (!target) return;
+  if (target.name && target.name !== "未配置开发活动") return; // 用户自己起过名就不动
+  const brief = campaignBriefStatus();
+  if (!brief.ok) return;
+  target.name = `${brief.product} · ${brief.markets}`;
 }
 
 function requireCampaignBrief(actionLabel = "继续") {

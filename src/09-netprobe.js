@@ -701,6 +701,9 @@ function autoPauseColdSequences() {
 function firstSendSteps() {
   const camp = state.campaign || {};
   const hasProduct = !!(camp.product || "").trim();
+  // 目标市场和产品一样是硬前置：第 2 步的 requireCampaignBrief 两个都要。
+  // 以前第 1 步只问产品就打勾，用户粘完整页搜索结果才被「缺目标市场」挡回来。
+  const hasMarkets = !!(camp.markets || "").trim();
   const hasLeads = (state.prospects || []).length > 0;
   const withEmail = (state.prospects || []).filter((p) => p.email).length;
   const mailReady = !!(state.settings?.senderEmail || "").trim();
@@ -709,19 +712,29 @@ function firstSendSteps() {
   return [
     {
       key: "product",
-      title: "说清你卖什么",
-      done: hasProduct,
-      need: "填一个具体产品（越具体越好，「无人机植保喷头」比「农业机械」强得多）",
+      title: hasProduct ? "说清卖到哪儿去" : "说清你卖什么",
+      done: hasProduct && hasMarkets,
+      need: hasProduct
+        ? "产品有了，还缺目标市场——不填的话下一步解析线索会被直接挡回来"
+        : "填一个具体产品（越具体越好，「无人机植保喷头」比「农业机械」强得多）",
       how: "填完就存，不用跳去别的页面",
       goto: "focus",
-      // 就地做：一个输入框 + 保存
-      inline: {
-        kind: "text",
-        field: "product",
-        placeholder: "例如：无人机植保喷头",
-        value: (camp.focusProduct || camp.product || "").trim(),
-        submit: "保存产品"
-      },
+      // 就地做：一个输入框 + 保存。产品填完自动换成目标市场，两个都齐了才打勾。
+      inline: hasProduct
+        ? {
+            kind: "text",
+            field: "markets",
+            placeholder: "例如：美国、加拿大、德国",
+            value: (camp.markets || "").trim(),
+            submit: "保存目标市场"
+          }
+        : {
+            kind: "text",
+            field: "product",
+            placeholder: "例如：无人机植保喷头",
+            value: (camp.focusProduct || camp.product || "").trim(),
+            submit: "保存产品"
+          },
       skippable: false
     },
     {
@@ -814,8 +827,19 @@ async function runFirstSendStep(field, value) {
     if (!(state.campaign.product || "").trim() || state.ui?.starterTemplate) state.campaign.product = text;
     if (state.ui?.starterTemplate) state.ui = { ...state.ui, starterTemplate: false };
     bindCampaignForm();
+    autoNameCampaign(); // 向导不走 readCampaignFromForm，得自己触发一次改名
     saveState();
-    return { ok: true, msg: `已锁定产品「${text}」，可以去找客户了` };
+    return { ok: true, msg: `已锁定产品「${text}」，接着填目标市场` };
+  }
+
+  if (field === "markets") {
+    const text = (value || "").trim();
+    if (!text) return { ok: false, msg: "先填一个目标市场再保存" };
+    state.campaign.markets = text;
+    bindCampaignForm();
+    autoNameCampaign(); // 向导不走 readCampaignFromForm，得自己触发一次改名
+    saveState();
+    return { ok: true, msg: `已锁定目标市场「${text}」，可以去找客户了` };
   }
 
   if (field === "leads") {
@@ -949,8 +973,10 @@ document.addEventListener(
     btn.dataset.busy = "1";
     btn.disabled = true;
     btn.textContent = "处理中…";
+    let ok = false;
     Promise.resolve(runFirstSendStep(field, value))
       .then((res) => {
+        ok = !!res?.ok;
         if (res?.msg) {
           addLog(res.msg);
           if (res.ok) runDone(res.msg);
@@ -966,6 +992,12 @@ document.addEventListener(
         btn.disabled = false;
         btn.textContent = label;
         render(); // 重渲染面板：做完的那步会自动打勾并收起
+        // 没跑成就把用户填的东西放回去。textarea 重渲染后一律是空的，
+        // 而这里装的往往是整页 Google 搜索结果——丢了就得回去重新复制一遍。
+        if (!ok && value) {
+          const back = document.querySelector(`[data-mkd-step-input="${field}"]`);
+          if (back && !back.value) back.value = value;
+        }
         renderLogs();
       });
   },
@@ -1245,3 +1277,9 @@ render = function () {
     console.error("[netprobe] 跟进徽章挂载失败", error);
   }
 };
+
+// 首屏补渲染：07 末尾那次 render() 跑的时候，本文件还没被拼进来，上面四层包装
+// 挂的六个面板（陪跑、潜客网络动作、发出第一封信、定位校准、追踪设置、跟进徽章）
+// 一个都不会出现，要等用户随手点一下触发重渲染才冒出来。新用户第一眼恰恰最需要
+// 「发出第一封信」，所以这里必须自己再渲染一次。
+render();
