@@ -258,7 +258,7 @@ npm run test:desktop       # 7 项真 Electron 集成测（机器码/safeStorage
 npm run icon               # 重新生成 icon.ico / icon.png / favicon.png
 ```
 
-> **浏览器轻量模式**：双击 `启动.bat` 会在固定端口 4174 起一个本地静态服务并打开浏览器。
+> **浏览器轻量模式**：在项目目录跑 `python -m http.server 4174`，然后打开 <http://localhost:4174/>。端口必须固定。
 > 这个模式读不到机器码，**永远是试用态**，只适合体验。真干活请用桌面版。两者数据空间独立。
 
 ## 第三方接入

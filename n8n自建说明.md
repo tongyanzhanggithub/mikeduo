@@ -19,7 +19,7 @@ n8n 是系统 6 个 Webhook 的"枢纽"。因为系统里所有 Webhook 都是**
 
 ## 第 2 步：起 n8n（一条命令，只做一次）
 
-Docker 变绿后，双击本目录的 **`启动n8n.bat`**（我已备好）。它执行：
+Docker 变绿后，开一个命令行跑下面这段（只做一次）：
 
 ```bat
 docker volume create n8n_data
@@ -34,7 +34,7 @@ docker run -d --name n8n --restart unless-stopped ^
 - `--restart unless-stopped`：以后开机/Docker 启动时 n8n **自动跟着起**，不用每次手动。
 - 数据存在 `n8n_data` 卷里，容器删了也不丢。
 - 之后管理：`docker stop n8n` / `docker start n8n` / `docker logs -f n8n`（看日志）。
-- 升级：`docker pull docker.n8n.io/n8nio/n8n` 后 `docker rm -f n8n` 再跑一次 `启动n8n.bat`。
+- 升级：`docker pull docker.n8n.io/n8nio/n8n` 后 `docker rm -f n8n`，再把上面那条 `docker run` 重跑一次。
 
 起好后浏览器打开 **http://localhost:5678** → 第一次会让你**创建 owner 账号**（邮箱+密码，只存本机）。
 
