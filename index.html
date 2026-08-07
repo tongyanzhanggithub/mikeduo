@@ -1,0 +1,1601 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>觅客舵 · 本地 AI 获客工作台</title>
+    <link rel="icon" type="image/png" href="./favicon.png?v=76a43d03" />
+    <link rel="stylesheet" href="./styles.css?v=76a43d03" />
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-rocket" viewBox="0 0 24 24">
+        <path d="M4.5 16.5 3 21l4.5-1.5" />
+        <path d="M9 15 5 19" />
+        <path d="M14 4c3.5-1.5 6-1 6-1s.5 2.5-1 6c-1.7 4-5.2 7.2-9.8 8.8L6.2 14.8C7.8 10.2 10 5.7 14 4Z" />
+        <path d="M15 9h.01" />
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </symbol>
+      <symbol id="icon-users" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </symbol>
+      <symbol id="icon-mail" viewBox="0 0 24 24">
+        <path d="M4 6h16v12H4z" />
+        <path d="m4 7 8 6 8-6" />
+      </symbol>
+      <symbol id="icon-message" viewBox="0 0 24 24">
+        <path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.5-5.2A8.5 8.5 0 1 1 21 12Z" />
+        <path d="M8 10h8M8 14h5" />
+      </symbol>
+      <symbol id="icon-zap" viewBox="0 0 24 24">
+        <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z" />
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+        <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.8 1.8 0 0 0 15 19.4a1.8 1.8 0 0 0-1 .6 1.8 1.8 0 0 0-.5 1.3V21a2 2 0 1 1-4 0v-.09A1.8 1.8 0 0 0 8 19.4a1.8 1.8 0 0 0-1.98.36l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.8 1.8 0 0 0 3.6 15a1.8 1.8 0 0 0-.6-1 1.8 1.8 0 0 0-1.3-.5H1.6a2 2 0 1 1 0-4h.09A1.8 1.8 0 0 0 3.6 8a1.8 1.8 0 0 0-.36-1.98l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.8 1.8 0 0 0 8 3.6a1.8 1.8 0 0 0 1-.6 1.8 1.8 0 0 0 .5-1.3V1.6a2 2 0 1 1 4 0v.09A1.8 1.8 0 0 0 15 3.6a1.8 1.8 0 0 0 1.98-.36l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.8 1.8 0 0 0 19.4 8c.18.37.4.7.6 1a1.8 1.8 0 0 0 1.3.5h.1a2 2 0 1 1 0 4h-.09a1.8 1.8 0 0 0-1.3.5 1.8 1.8 0 0 0-.61 1Z" />
+      </symbol>
+      <symbol id="icon-briefcase" viewBox="0 0 24 24">
+        <path d="M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1" />
+        <rect x="3" y="6" width="18" height="14" rx="2" />
+        <path d="M3 12h18" />
+        <path d="M9 12v2h6v-2" />
+      </symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24">
+        <path d="m8 5 11 7-11 7V5Z" />
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="11" height="11" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 4v11" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M5 20h14" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24">
+        <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93" />
+        <path d="M14 11a5 5 0 0 0-7.07 0L4.8 13.12a5 5 0 0 0 7.07 7.07L13 19.07" />
+      </symbol>
+      <symbol id="icon-inbox" viewBox="0 0 24 24">
+        <path d="M4 13h4l2 3h4l2-3h4" />
+        <path d="M5 5h14l2 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5Z" />
+      </symbol>
+      <symbol id="icon-shuffle" viewBox="0 0 24 24">
+        <path d="M16 3h5v5" />
+        <path d="M4 20 21 3" />
+        <path d="M16 21h5v-5" />
+        <path d="m15 15 6 6" />
+        <path d="M4 4l5 5" />
+      </symbol>
+      <symbol id="icon-columns" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="6" height="17" rx="1" />
+        <rect x="10.5" y="4" width="6" height="11" rx="1" />
+        <rect x="18" y="4" width="3" height="17" rx="1" />
+      </symbol>
+      <symbol id="icon-chart" viewBox="0 0 24 24">
+        <path d="M4 4v16h16" />
+        <path d="M8 16v-4" />
+        <path d="M12 16V8" />
+        <path d="M16 16v-6" />
+        <path d="M20 16v-9" />
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="m6 6 12 12" />
+        <path d="M18 6 6 18" />
+      </symbol>
+      <!-- 品类模板四卡专用：B8 唯一允许的双色图标（主色线条 + 10% 主色填充） -->
+      <symbol id="icon-cat-moto" viewBox="0 0 24 24">
+        <circle cx="5" cy="17" r="3.4" class="cat-fill" />
+        <circle cx="19" cy="17" r="3.4" class="cat-fill" />
+        <path d="M5 17h4l3-6h5" />
+        <path d="M12 11 9.5 7H7" />
+        <path d="M17 11h3l-1 6" />
+      </symbol>
+      <symbol id="icon-cat-auto" viewBox="0 0 24 24">
+        <path d="M3 16v-3l2-5h14l2 5v3" class="cat-fill" />
+        <path d="M3 16h18" />
+        <circle cx="7.5" cy="17.5" r="1.8" />
+        <circle cx="16.5" cy="17.5" r="1.8" />
+        <path d="M6 11h12" />
+      </symbol>
+      <symbol id="icon-cat-electronics" viewBox="0 0 24 24">
+        <rect x="4" y="5" width="16" height="11" rx="1.5" class="cat-fill" />
+        <path d="M2 19h20" />
+        <path d="M9.5 8.5h5v4h-5z" />
+      </symbol>
+      <symbol id="icon-cat-machinery" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.2" class="cat-fill" />
+        <path d="M12 4v2.6M12 17.4V20M4 12h2.6M17.4 12H20" />
+        <path d="m6.4 6.4 1.9 1.9M15.7 15.7l1.9 1.9M17.6 6.4l-1.9 1.9M8.3 15.7l-1.9 1.9" />
+      </symbol>
+      <symbol id="icon-robot" viewBox="0 0 24 24">
+        <rect x="5" y="8" width="14" height="11" rx="2" />
+        <path d="M12 8V4" />
+        <circle cx="12" cy="3" r="1" />
+        <path d="M9 13h.01M15 13h.01" />
+        <path d="M9.5 16.5h5" />
+        <path d="M3 12v3M21 12v3" />
+      </symbol>
+      <symbol id="icon-mkd-mark" viewBox="0 0 32 32">
+        <defs>
+          <linearGradient id="mkdInlineGradient" x1="5" y1="4" x2="27" y2="28" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#2563eb" />
+            <stop offset="1" stop-color="#0f9f8f" />
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="url(#mkdInlineGradient)" />
+        <path d="M9.6 22V10.5L16 17.8l6.4-7.3V22" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M16 17.8 22.4 10.5V22" fill="none" stroke="#dff7ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity=".72" />
+      </symbol>
+    </svg>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg><use href="#icon-mkd-mark" /></svg>
+          </span>
+          <div>
+            <strong>觅客舵</strong>
+            <span>本地 AI 获客工作台</span>
+          </div>
+        </div>
+        <nav class="nav-tabs nav-flat">
+          <button class="nav-tab is-active" data-view="dashboard" type="button" aria-label="工作台" title="工作台">
+            <svg><use href="#icon-rocket" /></svg>
+            <span>工作台</span>
+          </button>
+          <p class="nav-group-label">开发流程</p>
+          <button class="nav-tab" data-view="discovery" type="button" aria-label="获客" title="搜索、导入和筛选潜客">
+            <svg><use href="#icon-search" /></svg>
+            <span>获客</span>
+          </button>
+          <button class="nav-tab" data-view="agent" type="button" aria-label="AI Agent" title="AI Agent">
+            <svg><use href="#icon-robot" /></svg>
+            <span>Agent</span>
+          </button>
+          <button class="nav-tab" data-view="prospects" type="button" aria-label="潜客队列" title="潜客队列">
+            <svg><use href="#icon-users" /></svg>
+            <span>潜客</span>
+          </button>
+          <button class="nav-tab" data-view="email" type="button" aria-label="开发信序列" title="开发信序列">
+            <svg><use href="#icon-mail" /></svg>
+            <span>邮件</span>
+          </button>
+          <button class="nav-tab" data-view="whatsapp" type="button" aria-label="WhatsApp 开发" title="WhatsApp 开发">
+            <svg><use href="#icon-message" /></svg>
+            <span>WhatsApp</span>
+          </button>
+          <button class="nav-tab" data-view="automation" type="button" aria-label="触达队列" title="发信、WhatsApp 与跟进队列">
+            <svg><use href="#icon-zap" /></svg>
+            <span>触达队列</span>
+          </button>
+          <button class="nav-tab" data-view="inbox" type="button" aria-label="回复商机" title="全渠道统一收件箱">
+            <svg><use href="#icon-inbox" /></svg>
+            <span>回复商机</span>
+          </button>
+          <button class="nav-tab" data-view="crm" type="button" aria-label="CRM 商机管道" title="CRM 商机管道">
+            <svg><use href="#icon-columns" /></svg>
+            <span>CRM</span>
+          </button>
+          <button class="nav-tab" data-view="analytics" type="button" aria-label="数据分析看板" title="数据分析看板">
+            <svg><use href="#icon-chart" /></svg>
+            <span>分析</span>
+          </button>
+          <p class="nav-group-label">系统</p>
+          <button class="nav-tab" data-view="settings" type="button" aria-label="设置" title="自动化接口、AI 引擎和数据安全">
+            <svg><use href="#icon-settings" /></svg>
+            <span>设置</span>
+          </button>
+          <button class="nav-tab" data-view="management" type="button" aria-label="管理" title="运营管理后台">
+            <svg><use href="#icon-briefcase" /></svg>
+            <span>管理</span>
+          </button>
+        </nav>
+        <section class="sidebar-projects" aria-labelledby="sidebarProjectsTitle">
+          <div class="sidebar-projects-head">
+            <span id="sidebarProjectsTitle">项目</span>
+            <button class="sidebar-project-action" id="sidebarProjectNew" type="button" aria-label="新建开发项目" title="新建开发项目">+</button>
+          </div>
+          <div class="sidebar-project-list" id="sidebarProjectList"></div>
+          <button class="sidebar-project-manage" id="sidebarProjectManage" type="button" title="打开完整项目管理">
+            <svg><use href="#icon-briefcase" /></svg>
+            <span>项目管理</span>
+          </button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <button class="campaign-switch" id="campaignSwitch" type="button" title="切换开发活动">
+              <span class="cs-eyebrow">当前活动</span>
+              <strong id="campaignSwitchName">—</strong>
+              <svg class="cs-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+          </div>
+          <div class="topbar-actions">
+            <button class="icon-button" id="openPaletteBtn" type="button" aria-label="全局搜索" title="全局搜索客户、页面、动作 (Ctrl+K)">
+              <svg><use href="#icon-search" /></svg>
+            </button>
+            <button class="icon-button" id="themeToggle" type="button" aria-label="切换深色模式" title="深色 / 浅色模式">
+              <svg><use href="#icon-moon" /></svg>
+            </button>
+            <button class="icon-button" id="exportJson" type="button" aria-label="导出全部数据" title="导出全部数据">
+              <svg><use href="#icon-download" /></svg>
+            </button>
+            <button class="ghost-button" id="autopilotToggle" type="button" title="开启后自动执行：线索处理→入队待审→接力→AI草稿；发送始终需人工确认">
+              <svg><use href="#icon-zap" /></svg>
+              <span>自动驾驶：关</span>
+            </button>
+            <button class="primary-button" id="runAutomationTop" type="button" title="运行获客处理并准备待审批队列，不会直接发送">
+              <svg><use href="#icon-play" /></svg>
+              <span>准备获客队列</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- 运行状态条：长任务的「开始了没 / 在跑到哪 / 跑完了 / 中断了」在任何页面都看得见 -->
+        <div class="run-status" id="runStatusBar" role="status" aria-live="polite" hidden>
+          <span class="run-status-dot" id="runStatusDot" aria-hidden="true"></span>
+          <div class="run-status-body">
+            <strong class="run-status-title" id="runStatusTitle"></strong>
+            <span class="run-status-detail" id="runStatusDetail"></span>
+          </div>
+          <span class="run-status-time" id="runStatusTime"></span>
+          <button class="run-status-action" id="runStatusAction" type="button" hidden></button>
+          <button class="run-status-close" id="runStatusClose" type="button" aria-label="收起运行状态">✕</button>
+        </div>
+
+        <section class="view is-active" id="dashboardView" aria-labelledby="dashboardTitle">
+          <h2 id="dashboardTitle" class="sr-only">控制台</h2>
+          <!-- D1：待办优先于配置——老用户每天来是为了处理事，不是改活动 -->
+          <div class="todo-panel panel" id="todoPanel"></div>
+          <div id="onboardingChecklist"></div>
+          <div class="command-grid">
+            <form class="panel campaign-form" id="campaignForm">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Campaign</p>
+                  <h2>开发活动</h2>
+                </div>
+                <span class="status-pill" id="campaignStatus">本地模式</span>
+              </div>
+              <div class="preset-row" id="categoryPresets">
+                <span class="preset-label">常用出口品类·一键套用：</span>
+                <button class="chip-button cat-card" type="button" data-preset="moto">
+                  <svg class="cat-icon"><use href="#icon-cat-moto" /></svg><span>摩托车 &amp; 配件</span>
+                </button>
+                <button class="chip-button cat-card" type="button" data-preset="auto">
+                  <svg class="cat-icon"><use href="#icon-cat-auto" /></svg><span>汽车零部件</span>
+                </button>
+                <button class="chip-button cat-card" type="button" data-preset="electronics">
+                  <svg class="cat-icon"><use href="#icon-cat-electronics" /></svg><span>笔电 &amp; 电子</span>
+                </button>
+                <button class="chip-button cat-card" type="button" data-preset="machinery">
+                  <svg class="cat-icon"><use href="#icon-cat-machinery" /></svg><span>机械 &amp; 装备</span>
+                </button>
+              </div>
+              <div class="focus-row">
+                <label class="focus-field">
+                  <span>具体产品聚焦（可中文，比如：CG125 缸体套件 / 小型制砖机 / 植保无人机配件）</span>
+                  <div class="focus-inline">
+                    <input id="focusProductInput" placeholder="输入你真正要卖的那个具体零件或小设备" />
+                    <button class="primary-button" id="refineFocus" type="button" title="Claude 把它细化成精准英文术语+同义词+HS编码+该产品的真实买家类型，搜索/找客户/开发信全部围绕这个具体产品">
+                      <svg><use href="#icon-search" /></svg>
+                      <span>AI 细化定位</span>
+                    </button>
+                  </div>
+                </label>
+                <p class="focus-hint" id="focusHint"></p>
+                <label class="focus-desc-field">
+                  <span>专业产品描述（进开发信首封 · AI 细化后自动填，可自行修改）</span>
+                  <textarea id="productDescInput" name="productDescription" rows="3" placeholder="例：The CG125 cylinder block kit comprises a boron cast-iron barrel with matched piston, rings and head gasket, precision-honed to OEM tolerances for CG125/150 engines."></textarea>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  <span>产品</span>
+                  <input id="productInput" name="product" required />
+                </label>
+                <label>
+                  <span>目标市场</span>
+                  <input id="marketsInput" name="markets" required />
+                </label>
+                <label>
+                  <span>客户类型</span>
+                  <select id="customerTypeInput" name="customerType">
+                    <option value="importer distributor">进口商 / 经销商</option>
+                    <option value="retailer chain buyer">零售连锁 / 采购</option>
+                    <option value="brand private label">品牌商 / 贴牌</option>
+                    <option value="wholesaler">批发商</option>
+                    <option value="contractor project buyer">工程商 / 项目采购</option>
+                  </select>
+                </label>
+                <label>
+                  <span>每日上限</span>
+                  <input id="dailyLimitInput" name="dailyLimit" type="number" min="1" max="300" />
+                </label>
+              </div>
+              <label>
+                <span>卖点</span>
+                <textarea id="valuePropsInput" name="valueProps" rows="3"></textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  <span>认证/条件</span>
+                  <input id="certificationsInput" name="certifications" />
+                </label>
+                <label>
+                  <span>署名</span>
+                  <input id="senderInput" name="senderName" />
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  <span>公司名</span>
+                  <input id="companyInput" name="companyName" />
+                </label>
+                <label>
+                  <span>所在城市 / 产地</span>
+                  <input id="originInput" name="originCity" placeholder="例：Ningbo / Foshan / Chongqing（留空只说 China）" />
+                </label>
+              </div>
+              <div class="button-row">
+                <button class="primary-button" id="oneClickPipeline" type="button" title="一条龙：联网找客户 → 批量补全联系方式 → 质量分入队优质客户 → 生成待审批邮件，最后停在批量审批（发送始终等你过目）">
+                  <svg><use href="#icon-rocket" /></svg>
+                  <span>一键起量</span>
+                </button>
+                <button class="ghost-button" id="generatePlan" type="submit">
+                  <svg><use href="#icon-zap" /></svg>
+                  <span>生成开发计划</span>
+                </button>
+                <button class="ghost-button" id="resetDemo" type="button">重置为空白</button>
+              </div>
+            </form>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Metrics</p>
+                  <h2>自动化进度</h2>
+                </div>
+              </div>
+              <div class="metric-grid" id="metricGrid"></div>
+              <div class="workflow" id="workflowSteps"></div>
+            </section>
+          </div>
+
+          <!-- D1：本活动漏斗速览（线索→验证→触达→回复→询盘 五格数字） -->
+          <section class="panel funnel-panel" id="campaignFunnel"></section>
+
+          <div class="dashboard-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Discovery plan</p>
+                  <h2>搜索策略</h2>
+                </div>
+                <button class="icon-button" id="copyQueries" type="button" aria-label="复制搜索式" title="复制搜索式">
+                  <svg><use href="#icon-copy" /></svg>
+                </button>
+              </div>
+              <div class="query-list compact" id="queryPreview"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Best prospects</p>
+                  <h2>高分潜客</h2>
+                </div>
+              </div>
+              <div class="mini-prospect-list" id="topProspects"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="agentView" aria-labelledby="agentTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Autonomous prospecting agent</p>
+              <h2 id="agentTitle">AI 自动获客 Agent</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="ghost-button" id="agentDemoData" type="button" title="生成一批演示线索走完整流程">
+                <svg><use href="#icon-play" /></svg>
+                <span>用演示数据体验</span>
+              </button>
+              <button class="ghost-button" id="agentReset" type="button">
+                <svg><use href="#icon-x" /></svg>
+                <span>结束任务</span>
+              </button>
+            </div>
+          </div>
+
+          <section class="panel" id="agentPromptPanel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Step 1 · 下达任务</p>
+                <h2>用一句话描述你要开发的客户</h2>
+              </div>
+              <span class="status-pill" id="agentEngineTag">本地解析</span>
+            </div>
+            <label>
+              <span>市场、行业、客户类型、规模、触达策略——想到什么写什么</span>
+              <textarea id="agentPromptInput" rows="3" placeholder="帮我找美国和加拿大做户外家具批发的进口商，规模 20 人以上，自动发开发信和 WhatsApp，有询盘意向的推给我。"></textarea>
+            </label>
+            <div class="button-row">
+              <button class="primary-button" id="agentParse" type="button">
+                <svg><use href="#icon-zap" /></svg>
+                <span>解析任务</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel" id="agentTaskCard" hidden></section>
+
+          <div class="agent-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Pipeline</p>
+                  <h2>五步闭环进度</h2>
+                </div>
+              </div>
+              <div class="workflow" id="agentSteps"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Filter funnel</p>
+                  <h2>过滤漏斗</h2>
+                </div>
+              </div>
+              <div class="funnel" id="agentFunnel"></div>
+              <p class="connector-hint" id="agentFunnelHint"></p>
+            </section>
+          </div>
+
+          <section class="panel" id="agentApprovalPanel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Step 3 · 触达审批</p>
+                <h2>待审批触达方案</h2>
+              </div>
+              <button class="primary-button" id="agentApproveAll" type="button">
+                <svg><use href="#icon-check" /></svg>
+                <span>批量通过并发首触</span>
+              </button>
+            </div>
+            <div class="agent-approval-list" id="agentApprovalList"></div>
+          </section>
+
+          <section class="panel" id="agentDevelopPanel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Step 4 · 自动开发</p>
+                <h2>AI 初轮应答（带护栏）</h2>
+              </div>
+              <label class="toggle-row">
+                <input id="agentAutoRespond" type="checkbox" />
+                <span>开启初轮自动应答</span>
+              </label>
+            </div>
+            <label class="toggle-row" title="试运行（默认）：AI 应答先存草稿到队列，你审批后才发；确认答得稳了再勾选直发">
+              <input id="agentRespondLive" type="checkbox" />
+              <span>直发模式（不勾 = 试运行：AI 应答先进队列等你审批）</span>
+            </label>
+            <p class="connector-hint">
+              开启后：客户回复「你们做什么/发个目录/价格多少」等标准问题时 AI 自动应答（明确告知详细报价由销售同事跟进）；<strong>默认试运行——应答先存草稿等你审批，你认可后再切直发</strong>；<strong>涉及具体报价/折扣、账期、独家代理等敏感话题一律不擅自答复，立即转人工</strong>；客户 opt-out 即时加入黑名单并停止触达。所有 AI 应答均留痕可查。
+            </p>
+            <label>
+              <span>产品知识库 / 常见问答（喂给 AI 初轮应答，可留空）</span>
+              <textarea id="agentKnowledgeBase" rows="3" placeholder="例：MOQ 500 件起；打样 5-7 天；大货 25-35 天；支持定制 logo；已有 BSCI / LFGB / FDA；付款方式与账期请转销售。"></textarea>
+            </label>
+            <div class="button-row">
+              <button class="ghost-button" id="agentSaveKb" type="button">保存知识库</button>
+            </div>
+            <div class="agent-auto-log" id="agentAutoLog"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Step 5 · 意向移交</p>
+                <h2>意向分级</h2>
+              </div>
+            </div>
+            <div class="agent-handoff" id="agentHandoff"></div>
+          </section>
+        </section>
+
+        <section class="view" id="discoveryView" aria-labelledby="discoveryTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Search automation</p>
+              <h2 id="discoveryTitle">搜索与采集</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="primary-button" id="webSearchFind" type="button" title="用 Claude 联网搜索真实公司，直接进线索池（需在设置配置 AI 引擎）">
+                <svg><use href="#icon-robot" /></svg>
+                <span>Claude 联网找客户</span>
+              </button>
+              <button class="ghost-button" id="runDiscovery" type="button">
+                <svg><use href="#icon-search" /></svg>
+                <span>生成搜索式</span>
+              </button>
+              <button class="primary-button" id="createProspects" type="button">
+                <svg><use href="#icon-users" /></svg>
+                <span>导入搜索结果</span>
+              </button>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Market playbook</p>
+                <h2>你这些市场该用什么工具</h2>
+              </div>
+            </div>
+            <p class="connector-hint">
+              按「目标市场」逐个给：去哪找客户、用什么触达、有什么坑。不同市场差别很大——有的有提单级海关数据，有的（欧盟、日韩）法律上就查不到。
+              下面提到的第三方服务与其价格随时会变，请以各自官网为准；觅客舵不与任何一家有关联。
+            </p>
+            <div class="market-playbook" id="marketPlaybook"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Search queries</p>
+                <h2>搜索式（要你自己去搜）</h2>
+              </div>
+            </div>
+            <p class="connector-hint hint-callout">
+              <strong>这些不是已经找到的客户。</strong>它们是本地按你的产品和市场拼出来的
+              Google / LinkedIn 搜索语句——不联网、不花钱，所以永远有这么多条。
+              用法是：点「打开」在浏览器里搜 → 把结果里的公司官网复制下来 → 回到上面的输入框
+              <strong>粘贴导入</strong>，那一步才会真的产生线索。
+              <br />
+              想让软件替你搜、直接出公司列表，走的是另一条路：<strong>「联网找客户」/「一键起量」</strong>，
+              那条需要配好能联网的 AI（目前只有 Claude 支持），并且会按次消耗你的 API 额度。
+            </p>
+            <div class="query-toolbar">
+              <label class="search-box">
+                <svg><use href="#icon-search" /></svg>
+                <input id="queryFilter" type="search" placeholder="过滤渠道或关键词" />
+              </label>
+              <button class="icon-button" id="exportQueries" type="button" aria-label="导出搜索式" title="导出搜索式">
+                <svg><use href="#icon-download" /></svg>
+              </button>
+            </div>
+            <div class="query-list" id="queryList"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Customs database</p>
+                <h2>本地提单库 · 按供应商反查</h2>
+              </div>
+            </div>
+            <p class="connector-hint">
+              导入的海关 CSV 会把<b>原始提单</b>存进本机（不上传、不进备份 JSON）。攒下来之后就能反过来查：
+              <b>输入竞争对手的名字，列出所有从它进货的买家</b>——这是提单数据独有的能力，竞品官网上的经销商页是宣传，这里是交易记录。
+              数据只在本机查询，不提供整库导出（多数数据商的条款允许订阅者自用、禁止再分发）。
+            </p>
+            <div class="customs-panel" id="customsPanel"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Competitor channels</p>
+                <h2>竞品渠道反查（官网）</h2>
+              </div>
+            </div>
+            <label>
+              <span>粘贴竞品的 Where-to-buy / 经销商列表 / dealer locator 页面链接，Claude 联网抽出他家所有经销商作为你的高意向线索（需在设置配置 AI 引擎）</span>
+              <div class="query-toolbar">
+                <input id="competitorUrl" type="url" placeholder="https://competitor.com/where-to-buy" />
+                <button class="primary-button" id="reverseCompetitor" type="button">
+                  <svg><use href="#icon-shuffle" /></svg>
+                  <span>反查经销商</span>
+                </button>
+              </div>
+            </label>
+          </section>
+          <section class="panel import-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Import real results</p>
+                <h2>搜索结果导入</h2>
+              </div>
+              <div class="topbar-actions">
+                <button class="ghost-button" id="loadImportExample" type="button">
+                  <svg><use href="#icon-copy" /></svg>
+                  <span>示例格式</span>
+                </button>
+                <button class="ghost-button" id="loadCustomsExample" type="button" title="填入一份海关提单 CSV 样例（结构与 ImportYeti/ImportGenius/Volza 的导出一致），可直接点「解析为线索」跑通全流程">
+                  <svg><use href="#icon-inbox" /></svg>
+                  <span>海关数据示例</span>
+                </button>
+                <button class="primary-button" id="importSearchResults" type="button">
+                  <svg><use href="#icon-users" /></svg>
+                  <span>解析为线索</span>
+                </button>
+              </div>
+            </div>
+            <label>
+              <span>粘贴 Google 结果、公司官网、LinkedIn 公司页、邮箱、电话，或海关提单 CSV（自动识别并按买家聚合）</span>
+              <textarea id="searchResultsInput" rows="8" placeholder="Example Imports Inc. https://exampleimports.com buyer@exampleimports.com +1 555 0100&#10;Nordic Home Retail, https://nordichome.example, category@nordichome.example"></textarea>
+            </label>
+          </section>
+        </section>
+
+        <section class="view" id="prospectsView" aria-labelledby="prospectsTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Prospect engine</p>
+              <h2 id="prospectsTitle">潜客队列</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="primary-button" id="queueQualityLeads" type="button" title="把质量分 A/B 级、有联系方式、未入队/未回复的优质客户一键加入触达队列（首触仍待你审批发送）">
+                <svg><use href="#icon-zap" /></svg>
+                <span>一键入队优质客户</span>
+              </button>
+              <button class="primary-button" id="bulkResolveWebsites" type="button" title="海关数据只有公司名没有官网。这一步用 AI（Claude 可联网核实）把公司名解析成官网域名，之后才能找联系人。找不到就留空，绝不编造域名">
+                <svg><use href="#icon-link" /></svg>
+                <span>批量解析官网</span>
+              </button>
+              <button class="primary-button" id="bulkEnrichContacts" type="button" title="对所有缺联系方式的新线索一键批量找联系人（真实源/AI/规则，遵循已配置的引擎）；缺官网的会先自动解析域名">
+                <svg><use href="#icon-users" /></svg>
+                <span>批量补全联系方式</span>
+              </button>
+              <button class="ghost-button" id="enrichProspects" type="button">
+                <svg><use href="#icon-link" /></svg>
+                <span>补全资料</span>
+              </button>
+              <button class="ghost-button" id="verifyProspects" type="button">
+                <svg><use href="#icon-check" /></svg>
+                <span>验证邮箱</span>
+              </button>
+              <button class="ghost-button" id="buildWhatsappProspects" type="button">
+                <svg><use href="#icon-message" /></svg>
+                <span>生成 WhatsApp</span>
+              </button>
+              <button class="primary-button" id="exportProspects" type="button">
+                <svg><use href="#icon-download" /></svg>
+                <span>导出 CSV</span>
+              </button>
+            </div>
+          </div>
+          <!-- D2：待验证置顶提示条，一眼看到堵在哪 -->
+          <div id="prospectVerifyBanner"></div>
+
+          <div class="prospect-layout">
+            <section class="panel table-panel">
+              <div class="query-toolbar">
+                <label class="search-box">
+                  <svg><use href="#icon-search" /></svg>
+                  <input id="prospectFilter" type="search" placeholder="搜索公司、市场、来源" />
+                </label>
+                <!-- D2：质量分用分段控件，不用下拉——A/B/C/D 是同一维度的四档，值得一屏直选 -->
+                <div class="segmented grade-segments" id="gradeSegments" role="group" aria-label="质量分筛选">
+                  <button class="segment is-active" data-grade="all" type="button">全部</button>
+                  <button class="segment" data-grade="A" type="button">A</button>
+                  <button class="segment" data-grade="B" type="button">B</button>
+                  <button class="segment" data-grade="C" type="button">C</button>
+                  <button class="segment" data-grade="D" type="button">D</button>
+                </div>
+                <select id="gradeFilter" aria-label="质量分筛选" hidden>
+                  <option value="all">全部质量分</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                </select>
+                <select id="sourceFilter" aria-label="来源筛选">
+                  <option value="all">全部来源</option>
+                  <option value="webhook">真实验证</option>
+                  <option value="claude-web">联网核实</option>
+                  <option value="claude">AI 推测</option>
+                  <option value="local">规则推测</option>
+                </select>
+                <select id="verifyFilter" aria-label="验证状态筛选">
+                  <option value="all">全部验证状态</option>
+                  <option value="verified">✓ 已验证</option>
+                  <option value="manual">人工核实</option>
+                  <option value="guessed">⛔ 待验证（发不出去）</option>
+                </select>
+                <select id="marketFilter" aria-label="市场筛选">
+                  <option value="all">全部市场</option>
+                </select>
+                <select id="statusFilter" aria-label="状态筛选">
+                  <option value="all">全部状态</option>
+                  <option value="新发现">新发现</option>
+                  <option value="待审核">待审核</option>
+                  <option value="已审核">已审核</option>
+                  <option value="已丰富">已丰富</option>
+                  <option value="邮箱有效">邮箱有效</option>
+                  <option value="待发信">待发信</option>
+                  <option value="已入队">已入队</option>
+                  <option value="已回复">已回复</option>
+                </select>
+                <select id="prospectSort" aria-label="排序">
+                  <option value="quality">按质量分</option>
+                  <option value="recent">按最新</option>
+                  <option value="market">按市场</option>
+                </select>
+              </div>
+              <div class="prospect-table" id="prospectTable"></div>
+            </section>
+          </div>
+
+          <!-- D2：选中 n 条时从底部滑入的批量操作条 -->
+          <div class="bulk-bar" id="prospectBulkBar" hidden></div>
+        </section>
+
+        <section class="view" id="emailView" aria-labelledby="emailTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Email sequence</p>
+              <h2 id="emailTitle">开发信序列</h2>
+            </div>
+            <div class="topbar-actions">
+              <select id="emailProspectSelect" aria-label="选择潜客"></select>
+              <button class="ghost-button" id="aiWriteEmail" type="button" title="用 Claude 按客户画像深度个性化生成整套序列（需在设置中配置 AI 引擎）">
+                <svg><use href="#icon-zap" /></svg>
+                <span>Claude 深度写信</span>
+              </button>
+              <button class="ghost-button" id="regenerateEmail" type="button">
+                <svg><use href="#icon-mail" /></svg>
+                <span>重写序列</span>
+              </button>
+              <button class="primary-button" id="queueSequence" type="button">
+                <svg><use href="#icon-zap" /></svg>
+                <span>加入队列</span>
+              </button>
+            </div>
+          </div>
+          <div class="sequence-grid" id="sequenceGrid"></div>
+        </section>
+
+        <section class="view" id="whatsappView" aria-labelledby="whatsappTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">WhatsApp outreach</p>
+              <h2 id="whatsappTitle">WhatsApp 开发</h2>
+            </div>
+            <div class="topbar-actions">
+              <select id="whatsappProspectSelect" aria-label="选择潜客"></select>
+              <button class="ghost-button" id="regenerateWhatsapp" type="button">
+                <svg><use href="#icon-message" /></svg>
+                <span>重写话术</span>
+              </button>
+              <button class="primary-button" id="queueWhatsapp" type="button">
+                <svg><use href="#icon-zap" /></svg>
+                <span>加入 WhatsApp 队列</span>
+              </button>
+            </div>
+          </div>
+          <div class="whatsapp-note">
+            WhatsApp 更适合已授权、询盘、展会名片或已有业务关系的客户。冷启动建议先用邮件/LinkedIn 建立上下文，避免账号风控。
+          </div>
+          <div class="sequence-grid" id="whatsappSequenceGrid"></div>
+        </section>
+
+        <section class="view" id="inboxView" aria-labelledby="inboxTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Omnichannel inbox</p>
+              <h2 id="inboxTitle">全渠道统一收件箱</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="ghost-button" id="pullReplies" type="button" title="从「拉取回复 Webhook」拉真实客户回信进收件箱（需在设置里配置）">
+                <svg><use href="#icon-inbox" /></svg>
+                <span>拉取回复</span>
+              </button>
+              <button class="ghost-button" id="markAllRead" type="button">
+                <svg><use href="#icon-check" /></svg>
+                <span>全部标记已读</span>
+              </button>
+              <button class="primary-button" id="runRelay" type="button">
+                <svg><use href="#icon-shuffle" /></svg>
+                <span>运行跨渠道接力</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="relay-bar">
+            <div class="relay-rule">
+              <p class="eyebrow">跨渠道规则</p>
+              <div class="segmented" role="group" aria-label="跨渠道模式">
+                <button class="segment is-active" id="relayModeRelay" data-relay-mode="relay" type="button">接力（未回才转）</button>
+                <button class="segment" id="relayModeParallel" data-relay-mode="parallel" type="button">协同（邮件+WhatsApp）</button>
+              </div>
+              <p class="relay-hint" id="relayModeHint"></p>
+              <div class="relay-rule-grid">
+                <label class="toggle-row">
+                  <input id="relayEmailToWa" type="checkbox" />
+                  <span>邮件未回自动转 WhatsApp</span>
+                </label>
+                <label>
+                  <span>邮件未回天数</span>
+                  <input id="relayEmailDays" type="number" min="0" max="60" />
+                </label>
+                <label class="toggle-row">
+                  <input id="relayWaToEmail" type="checkbox" />
+                  <span>WhatsApp 未覆盖回退邮件</span>
+                </label>
+                <label>
+                  <span>WhatsApp 未回天数</span>
+                  <input id="relayWaDays" type="number" min="0" max="60" />
+                </label>
+              </div>
+              <p class="relay-hint">把未回天数设为 0 可立即演示接力。客户一旦回复，该会话自动停止接力。</p>
+            </div>
+            <div class="relay-kpis" id="relayKpis"></div>
+          </div>
+
+          <div class="inbox-layout" id="inboxLayout">
+            <section class="panel table-panel">
+              <div class="query-toolbar">
+                <label class="search-box">
+                  <svg><use href="#icon-search" /></svg>
+                  <input id="conversationFilter" type="search" placeholder="搜索客户会话" />
+                </label>
+                <select id="conversationStatusFilter" aria-label="会话筛选">
+                  <option value="all">全部会话</option>
+                  <option value="unreplied">未回复</option>
+                  <option value="replied">已回复</option>
+                  <option value="relayed">已接力</option>
+                  <option value="unread">有未读</option>
+                </select>
+              </div>
+              <div class="conversation-list" id="conversationList"></div>
+            </section>
+            <section class="panel timeline-panel" id="inboxTimeline"></section>
+            <!-- D4 第三栏：意图＋置信度 / 风险扫描卡 / 回复建议 -->
+            <section class="panel inbox-ai-col" id="inboxAiPanel"></section>
+          </div>
+        </section>
+
+        <section class="view" id="crmView" aria-labelledby="crmTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Deal pipeline</p>
+              <h2 id="crmTitle">商机管道看板</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="ghost-button" id="scheduleFollowupsCrm" type="button">
+                <svg><use href="#icon-check" /></svg>
+                <span>生成跟进任务</span>
+              </button>
+              <button class="primary-button" id="openQuoteBuilder" type="button" title="选客户+选产品行，生成专业英文报价单（打印/PDF/复制进邮件），CRM 自动推进到「报价」">
+                <svg><use href="#icon-briefcase" /></svg>
+                <span>生成报价单</span>
+              </button>
+              <button class="ghost-button" id="exportCrm" type="button">
+                <svg><use href="#icon-download" /></svg>
+                <span>导出管道</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="crm-kpis" id="crmKpis"></div>
+
+          <p class="crm-hint">把卡片拖到目标阶段即可推进商机。客户回复会自动推进到「已回复」，超期未跟进的卡片标红提醒。</p>
+
+          <div class="crm-board" id="crmBoard"></div>
+        </section>
+
+        <section class="view" id="automationView" aria-labelledby="automationTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Outbox and follow-up</p>
+              <h2 id="automationTitle">发信与跟进队列</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="ghost-button" id="simulateSend" type="button" title="只发送已经批准的第一封待发送邮件">
+                <svg><use href="#icon-play" /></svg>
+                <span>发送已批准一封</span>
+              </button>
+              <button class="ghost-button" id="sendDueBtn" type="button" title="只发送已批准且今日到期的邮件；未审批邮件请用批量审批发送">
+                <svg><use href="#icon-zap" /></svg>
+                <span>发送已批准到期</span>
+              </button>
+              <button class="primary-button" id="queueFollowups" type="button" title="给已发过首封、超过跟进间隔仍未回复的客户，一键排下一封跟进邮件（待你审批发送）">
+                <svg><use href="#icon-shuffle" /></svg>
+                <span>一键批量跟进</span>
+              </button>
+              <button class="ghost-button" id="scheduleFollowups" type="button">
+                <svg><use href="#icon-check" /></svg>
+                <span>生成跟进任务</span>
+              </button>
+            </div>
+          </div>
+          <div class="automation-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Outbox</p>
+                  <h2>发信队列</h2>
+                </div>
+                <button class="icon-button" id="exportOutbox" type="button" aria-label="导出发信队列" title="导出发信队列">
+                  <svg><use href="#icon-download" /></svg>
+                </button>
+              </div>
+              <div class="outbox-list" id="outboxList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Tasks</p>
+                  <h2>跟进任务</h2>
+                </div>
+              </div>
+              <div class="task-list" id="taskList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">WhatsApp</p>
+                  <h2>WhatsApp 队列</h2>
+                </div>
+                <button class="icon-button" id="exportWhatsappQueue" type="button" aria-label="导出 WhatsApp 队列" title="导出 WhatsApp 队列">
+                  <svg><use href="#icon-download" /></svg>
+                </button>
+              </div>
+              <div class="outbox-list" id="whatsappQueueList"></div>
+            </section>
+          </div>
+          <section class="panel log-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Run log</p>
+                <h2>自动化日志</h2>
+              </div>
+            </div>
+            <div class="run-log" id="runLog"></div>
+          </section>
+        </section>
+
+        <section class="view" id="analyticsView" aria-labelledby="analyticsTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Analytics</p>
+              <h2 id="analyticsTitle">数据分析看板</h2>
+              <p class="scope-note" id="analyticsScope"></p>
+            </div>
+            <div class="topbar-actions">
+              <div class="segmented" role="group" aria-label="时间范围" id="analyticsRange">
+                <button class="segment is-active" data-range="all" type="button">全部</button>
+                <button class="segment" data-range="7d" type="button">近7天</button>
+                <button class="segment" data-range="30d" type="button">近30天</button>
+              </div>
+              <button class="ghost-button" id="simulateCallbacks" type="button">
+                <svg><use href="#icon-play" /></svg>
+                <span>模拟送达/打开回传</span>
+              </button>
+              <button class="primary-button" id="weeklyReportBtn" type="button" title="一键生成本周战报（发送/回复/热意向/报价 + 下周建议），可复制汇报">
+                <svg><use href="#icon-chart" /></svg>
+                <span>生成周报</span>
+              </button>
+              <button class="primary-button" id="exportAnalytics" type="button">
+                <svg><use href="#icon-download" /></svg>
+                <span>导出指标</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="insight-banner" id="analyticsInsight"></div>
+
+          <div class="analytics-kpis" id="analyticsKpis"></div>
+
+          <div class="analytics-grid">
+            <section class="panel wide-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Full funnel</p>
+                  <h2>全流程漏斗（线索 → 询盘）</h2>
+                </div>
+                <span class="status-pill" id="funnelNote">按客户去重统计</span>
+              </div>
+              <div class="funnel" id="analyticsFunnel"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Email vs WhatsApp</p>
+                  <h2>渠道对比</h2>
+                </div>
+              </div>
+              <div class="channel-compare" id="channelCompare"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Relay impact</p>
+                  <h2>双渠道接力效果</h2>
+                </div>
+              </div>
+              <div class="relay-impact" id="relayImpact"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Market performance</p>
+                  <h2>市场表现</h2>
+                </div>
+              </div>
+              <div class="market-table" id="marketPerformance"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Template reply rate</p>
+                  <h2>话术回复率排行</h2>
+                </div>
+              </div>
+              <div class="template-rank" id="templateRank"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Subject A/B</p>
+                  <h2>首封主题行 A/B</h2>
+                </div>
+              </div>
+              <p class="connector-hint">首封自动分成两种主题写法，按线索稳定分配（同一条客户永远落在同一边，重新入队也不会漂移）。样本够了才给结论。</p>
+              <div class="template-rank" id="subjectAb"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="managementView" aria-labelledby="managementTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Management system</p>
+              <h2 id="managementTitle">运营管理后台</h2>
+            </div>
+            <div class="topbar-actions">
+              <button class="ghost-button" id="saveCampaignSnapshot" type="button">
+                <svg><use href="#icon-check" /></svg>
+                <span>保存当前活动</span>
+              </button>
+              <button class="ghost-button" id="runManagementJobs" type="button">
+                <svg><use href="#icon-play" /></svg>
+                <span>运行待执行</span>
+              </button>
+              <button class="primary-button" id="exportManagement" type="button">
+                <svg><use href="#icon-download" /></svg>
+                <span>导出管理数据</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="management-kpis" id="managementKpis"></div>
+
+          <div class="management-grid">
+            <section class="panel management-panel wide-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Campaigns</p>
+                  <h2>活动管理</h2>
+                </div>
+                <button class="ghost-button" id="newManagedCampaign" type="button">
+                  <svg><use href="#icon-rocket" /></svg>
+                  <span>新建活动</span>
+                </button>
+              </div>
+              <div class="management-table" id="campaignManager"></div>
+            </section>
+
+            <section class="panel management-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Jobs</p>
+                  <h2>自动化任务中心</h2>
+                </div>
+                <button class="icon-button" id="resetJobs" type="button" aria-label="重置任务" title="重置任务">
+                  <svg><use href="#icon-zap" /></svg>
+                </button>
+              </div>
+              <div class="job-board" id="jobBoard"></div>
+            </section>
+
+            <section class="panel management-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Approvals</p>
+                  <h2>审批中心</h2>
+                </div>
+                <button class="ghost-button" id="approveAll" type="button" title="Agent 触达卡会通过并发送；普通邮件只批准为待发送">
+                  <svg><use href="#icon-check" /></svg>
+                  <span>全部通过/放行</span>
+                </button>
+              </div>
+              <div class="approval-list" id="approvalCenter"></div>
+            </section>
+
+            <section class="panel management-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Accounts</p>
+                  <h2>渠道账号</h2>
+                </div>
+              </div>
+              <div class="account-list" id="accountManager"></div>
+            </section>
+
+            <section class="panel management-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Products</p>
+                  <h2>产品库</h2>
+                </div>
+              </div>
+              <p class="connector-hint">一处维护，三处受益：AI 回复引用真实参数、报价单直接选行、开发信卖点更准。价格为参考单价（报价时可改）。</p>
+              <div id="productManager"></div>
+            </section>
+
+            <section class="panel management-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Quotations</p>
+                  <h2>报价单</h2>
+                </div>
+              </div>
+              <p class="connector-hint">已生成的报价单在这里随时打开、重发或存 PDF。发送走和开发信同一个预检闸门，仍需你审批。</p>
+              <div id="quoteManager"></div>
+            </section>
+
+            <section class="panel management-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Rules</p>
+                  <h2>自动化规则</h2>
+                </div>
+                <button class="primary-button" id="saveRules" type="button">
+                  <svg><use href="#icon-check" /></svg>
+                  <span>保存规则</span>
+                </button>
+              </div>
+              <div class="rules-grid">
+                <label>
+                  <span>邮件日上限</span>
+                  <input id="ruleEmailLimit" type="number" min="1" max="500" />
+                </label>
+                <label>
+                  <span>WhatsApp 日上限</span>
+                  <input id="ruleWhatsappLimit" type="number" min="1" max="200" />
+                </label>
+                <label>
+                  <span>最低线索评分</span>
+                  <input id="ruleScoreThreshold" type="number" min="0" max="100" />
+                </label>
+                <label>
+                  <span>冷却天数</span>
+                  <input id="ruleCooldownDays" type="number" min="1" max="60" />
+                </label>
+                <label class="toggle-row">
+                  <input id="ruleRequireApproval" type="checkbox" />
+                  <span>WhatsApp 发送前必须审批</span>
+                </label>
+              </div>
+            </section>
+
+          </div>
+        </section>
+
+        <section class="view" id="settingsView" aria-labelledby="settingsTitle">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Connectors</p>
+              <h2 id="settingsTitle">自动化接口</h2>
+            </div>
+            <button class="primary-button" id="saveSettings" type="button">
+              <svg><use href="#icon-check" /></svg>
+              <span>保存设置</span>
+            </button>
+          </div>
+          <!-- D7：左锚点导航 -->
+          <div class="settings-shell">
+          <nav class="settings-nav" id="settingsNav" aria-label="设置分区">
+            <button class="settings-anchor is-active" data-anchor="mode" type="button">运行模式</button>
+            <button class="settings-anchor" data-anchor="mail" type="button">收发信</button>
+            <button class="settings-anchor" data-anchor="datasource" type="button">数据源</button>
+            <button class="settings-anchor" data-anchor="ai" type="button">AI 引擎</button>
+            <button class="settings-anchor" data-anchor="webhook" type="button">Webhook</button>
+            <button class="settings-anchor" data-anchor="dispatch" type="button">派发</button>
+            <button class="settings-anchor" data-anchor="background" type="button">后台运行</button>
+            <button class="settings-anchor" data-anchor="data" type="button">数据与备份</button>
+            <button class="settings-anchor" data-anchor="license" type="button">授权与诊断</button>
+          </nav>
+          <div class="settings-body">
+          <div class="settings-grid">
+            <section class="panel" id="anchor-mode">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Mode</p>
+                  <h2>运行模式</h2>
+                </div>
+              </div>
+              <div class="segmented" role="group" aria-label="运行模式">
+                <button class="segment is-active" id="localMode" data-mode="local" type="button">本地模拟</button>
+                <button class="segment" id="directMode" data-mode="direct" type="button">直连（推荐）</button>
+                <button class="segment" id="webhookMode" data-mode="webhook" type="button">Webhook</button>
+              </div>
+              <p class="connector-hint" id="modeHint"></p>
+            </section>
+
+            <section class="panel connector-panel" id="anchor-mail">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Mail</p>
+                  <h2>收发信（直连模式）</h2>
+                </div>
+              </div>
+              <p class="connector-hint">
+                填你的企业邮箱参数，应用直接收发，<b>不用自建 n8n</b>。密码用系统加密存在本机，
+                既不进界面也不进备份 JSON——导出备份发给客服不会泄露。<br />
+                ⚠️ 密码栏要填企业邮箱后台生成的<b>客户端授权码</b>，不是你登录网页版的那个密码。这是配置失败最常见的原因。
+              </p>
+              <div class="mail-config" id="mailConfig"></div>
+            </section>
+
+            <section class="panel connector-panel" id="anchor-datasource">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Data sources</p>
+                  <h2>找客户与补邮箱（直连）</h2>
+                </div>
+              </div>
+              <p class="connector-hint">
+                和 AI 引擎一样，填个 API Key 就能用，<b>不用经 n8n 中转</b>。留空则回落到对应的 Webhook。
+                两家都有免费额度，具体额度与价格以各自官网为准。
+              </p>
+              <label>
+                <span>SerpAPI Key（联网找客户 · serpapi.com）</span>
+                <input id="serpApiKeyInput" type="password" autocomplete="off" placeholder="留空则用「搜索采集 Webhook」" />
+              </label>
+              <label>
+                <span>Hunter API Key（补全采购人邮箱 · hunter.io）</span>
+                <input id="hunterApiKeyInput" type="password" autocomplete="off" placeholder="留空则用「邮箱查找 Webhook」" />
+              </label>
+              <div class="form-grid">
+                <label>
+                  <span>SerpAPI 每日调用上限</span>
+                  <input id="serpDailyLimitInput" type="number" min="1" max="5000" />
+                </label>
+                <label>
+                  <span>Hunter 每日调用上限</span>
+                  <input id="hunterDailyLimitInput" type="number" min="1" max="5000" />
+                </label>
+              </div>
+              <p class="connector-hint">
+                这两家按次计费，而自动驾驶与周期补量会在后台静默调用——加个每日上限，
+                免得开着后台常驻睡一觉醒来额度烧光。到顶只是暂停调用，不影响其它功能，次日自动重置。
+              </p>
+              <p class="connector-hint" id="dataSourceHint"></p>
+            </section>
+            <section class="panel connector-panel" id="anchor-webhook">
+              <div class="connector-row" data-webhook="search">
+                <label>
+                  <span>搜索采集 Webhook</span>
+                  <input id="searchWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="search" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="search">未测试</span>
+                </div>
+              </div>
+              <div class="connector-row" data-webhook="enrich">
+                <label>
+                  <span>邮箱查找/验证 Webhook</span>
+                  <input id="enrichWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="enrich" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="enrich">未测试</span>
+                </div>
+              </div>
+              <div class="connector-row" data-webhook="send">
+                <label>
+                  <span>发信 Webhook / SMTP 服务</span>
+                  <input id="sendWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="send" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="send">未测试</span>
+                </div>
+              </div>
+              <div class="connector-row" data-webhook="whatsapp">
+                <label>
+                  <span>WhatsApp Business Webhook</span>
+                  <input id="whatsappWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="whatsapp" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="whatsapp">未测试</span>
+                </div>
+              </div>
+              <div class="connector-row" data-webhook="crm">
+                <label>
+                  <span>CRM 同步 Webhook</span>
+                  <input id="crmWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="crm" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="crm">未测试</span>
+                </div>
+              </div>
+              <div class="connector-row" data-webhook="inbound">
+                <label>
+                  <span>拉取回复 Webhook（真实客户回信入口：接 n8n/IMAP 收件服务）</span>
+                  <input id="inboundWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="inbound" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="inbound">未测试</span>
+                </div>
+              </div>
+              <div class="connector-row" data-webhook="status">
+                <label>
+                  <span>发送状态回传 Webhook（送达/退信/打开：硬退信自动拉黑保护发信域名）</span>
+                  <input id="statusWebhook" placeholder="https://..." />
+                </label>
+                <div class="connector-foot">
+                  <button class="ghost-button test-webhook" data-webhook="status" type="button">测试连接</button>
+                  <span class="webhook-status" data-webhook-status="status">未测试</span>
+                </div>
+              </div>
+            </section>
+            <section class="panel connector-panel">
+              <label>
+                <span>搜索工具</span>
+                <select id="searchProvider">
+                  <option>Google Custom Search / SerpAPI</option>
+                  <option>Bing Search API</option>
+                  <option>Apify Actor</option>
+                  <option>n8n Workflow</option>
+                  <option>Activepieces Flow</option>
+                </select>
+              </label>
+              <label>
+                <span>邮箱工具</span>
+                <select id="emailProvider">
+                  <option>Hunter / Apollo / Dropcontact</option>
+                  <option>ZeroBounce / NeverBounce</option>
+                  <option>自有邮箱规则</option>
+                  <option>n8n SMTP</option>
+                </select>
+              </label>
+              <label>
+                <span>CRM</span>
+                <select id="crmProvider">
+                  <option>Twenty / Wukong CRM</option>
+                  <option>EspoCRM</option>
+                  <option>HubSpot</option>
+                  <option>自定义 Webhook</option>
+                </select>
+              </label>
+            </section>
+
+            <section class="panel connector-panel ai-engine-panel" id="anchor-ai">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">AI engine</p>
+                  <h2>AI 引擎</h2>
+                </div>
+                <span class="status-pill" id="aiEngineStatus">本地规则</span>
+              </div>
+              <div class="segmented" role="group" aria-label="AI 引擎">
+                <button class="segment is-active" id="aiLocalMode" data-ai-engine="local" type="button">本地规则</button>
+                <button class="segment" id="aiCloudMode" data-ai-engine="cloud" type="button">云端大模型</button>
+              </div>
+              <div id="aiCloudRow" style="display:none">
+                <label>
+                  <span>服务商</span>
+                  <select id="aiProviderSelect">
+                    <optgroup label="国产大模型">
+                      <option value="deepseek">DeepSeek 深度求索（最省 ≈¥14/月）</option>
+                      <option value="qwen">通义千问 Qwen（阿里）</option>
+                      <option value="kimi">Kimi Moonshot（月之暗面）</option>
+                      <option value="zhipu">智谱 GLM</option>
+                      <option value="doubao">豆包（字节·火山方舟）</option>
+                      <option value="hunyuan">腾讯混元</option>
+                      <option value="ernie">文心一言（百度千帆）</option>
+                      <option value="spark">讯飞星火</option>
+                      <option value="minimax">MiniMax</option>
+                      <option value="stepfun">阶跃星辰 Step</option>
+                      <option value="yi">零一万物 Yi</option>
+                      <option value="baichuan">百川 Baichuan</option>
+                      <option value="siliconflow">硅基流动（一个 Key 跑多家开源模型）</option>
+                    </optgroup>
+                    <optgroup label="海外">
+                      <option value="openai">OpenAI ChatGPT（较贵）</option>
+                      <option value="anthropic">Claude（最强·联网找客户专用·较贵）</option>
+                    </optgroup>
+                    <optgroup label="其他">
+                      <option value="custom">自定义（OpenAI 兼容）</option>
+                    </optgroup>
+                  </select>
+                </label>
+                <label>
+                  <span>API Key（仅存本机浏览器）</span>
+                  <input id="aiApiKeyInput" type="password" placeholder="sk-ant-..." autocomplete="off" />
+                </label>
+                <label id="aiBaseUrlRow" style="display:none">
+                  <span id="aiBaseUrlLabel">中转地址（选填）</span>
+                  <input id="aiBaseUrlInput" type="text" placeholder="https://你的中转域名" autocomplete="off" />
+                </label>
+                <label>
+                  <span>模型</span>
+                  <select id="aiModelSelect"></select>
+                </label>
+                <label id="aiModelCustomRow" style="display:none">
+                  <span>自定义模型名（中转站/自建服务的别名，按其文档填）</span>
+                  <input id="aiModelCustomInput" type="text" placeholder="如 claude-opus-5 / gpt-4o" autocomplete="off" />
+                </label>
+              </div>
+              <div class="connector-foot">
+                <button class="ghost-button" id="testAiEngine" type="button">测试连接</button>
+                <button class="ghost-button" id="aiModelFetch" type="button">拉取可用模型</button>
+                <span class="webhook-status" id="aiEngineTestStatus">未测试</span>
+              </div>
+              <p class="connector-hint">
+                云端大模型支持 Claude、ChatGPT 及国产大模型（DeepSeek / 通义千问 / Kimi / 智谱 GLM 等，走 OpenAI 兼容接口）。意图识别、回复建议、摘要、深度写信由所选模型完成；未配置或失败时自动降级本地规则。<br />
+                💡 省钱建议：日常跑量用 <b>DeepSeek</b>（同样量约 ¥14/月，是 Opus 的 1/20）；只在需要「联网找客户 / 官网深挖」时另挂一个 <b>Claude</b> Key 按次用。两者可随时切换、互不影响。
+              </p>
+            </section>
+          </div>
+
+          <section class="panel" id="anchor-dispatch">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Dispatch</p>
+                <h2>Webhook 派发</h2>
+              </div>
+              <button class="primary-button" id="dispatchWebhooks" type="button">
+                <svg><use href="#icon-play" /></svg>
+                <span>派发已批准到期</span>
+              </button>
+            </div>
+            <p class="connector-hint">
+              Webhook 模式下，把已批准且到期的邮件交给发信服务、已审批且到期的 WhatsApp 交给 Business API、潜客同步到 CRM。本地模式下此按钮仅做本地模拟发送。
+            </p>
+            <div class="run-log" id="webhookLog"></div>
+          </section>
+
+          <section class="panel" id="anchor-background">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Background</p>
+                <h2>后台运行</h2>
+              </div>
+            </div>
+            <p class="connector-hint">
+              自动驾驶跑在应用里，关掉应用就停。开启后台常驻后，关闭窗口只是收进托盘，自动驾驶继续工作；
+              要彻底停止请在托盘图标右键选「完全退出」。<br />
+              需要 7×24 真正无人值守（比如关机也要跑），得把采集/发送放到 n8n + 外部 cron，见「n8n自建说明」。
+            </p>
+            <div class="bg-options" id="backgroundOptions"></div>
+          </section>
+
+          <section class="panel" id="anchor-data">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Data safety</p>
+                <h2>数据与备份</h2>
+              </div>
+              <div class="topbar-actions">
+                <button class="ghost-button danger-button" id="importBackup" type="button" title="选一个之前导出的备份 JSON，恢复全部数据（会覆盖当前数据）">
+                  <svg><use href="#icon-inbox" /></svg>
+                  <span>导入备份</span>
+                </button>
+                <button class="primary-button" id="backupNow" type="button">
+                  <svg><use href="#icon-download" /></svg>
+                  <span>立即备份（导出 JSON）</span>
+                </button>
+              </div>
+            </div>
+            <input id="importBackupFile" type="file" accept="application/json,.json" hidden />
+            <div class="data-safety" id="dataSafety"></div>
+            <p class="connector-hint">
+              所有数据（线索/队列/黑名单/配置/API Key）只存在<strong>本机浏览器</strong>里：清浏览器缓存、换浏览器、换端口访问都会看不到数据。建议每周备份一份 JSON；换电脑时用备份文件恢复。
+            </p>
+          </section>
+          </div>
+          </div>
+
+          <!-- 常驻保存条：设置页很长，不该为了保存滚回顶部 -->
+          <div class="settings-savebar" id="settingsSaveBar">
+            <span class="sb-hint" id="settingsSaveHint">改完记得保存 · 也可以按 Ctrl+S</span>
+            <button class="primary-button" id="saveSettingsBottom" type="button">
+              <svg><use href="#icon-check" /></svg>
+              <span>保存设置</span>
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="palette-overlay" id="paletteOverlay" hidden>
+      <div class="palette" role="dialog" aria-modal="true" aria-label="全局搜索">
+        <label class="palette-input">
+          <svg><use href="#icon-search" /></svg>
+          <input id="paletteInput" placeholder="搜索客户、页面、动作…（↑↓ 选择，Enter 执行，Esc 关闭）" autocomplete="off" />
+        </label>
+        <div class="palette-results" id="paletteResults"></div>
+      </div>
+    </div>
+
+    <div class="welcome-overlay" id="welcomeOverlay" hidden>
+      <div class="panel welcome-card" role="dialog" aria-modal="true" aria-label="欢迎">
+        <div class="welcome-mark"><svg><use href="#icon-mkd-mark" /></svg></div>
+        <h2>欢迎使用觅客舵</h2>
+        <p>输入产品和市场，系统帮你 <strong>找客户 → 写开发信 → 排发送队列 → 管回复</strong>，全程你只需审批。第一次用，建议先「一键体验」看效果。</p>
+        <div class="welcome-actions">
+          <button class="primary-button" id="welcomeDemo" type="button">
+            <svg><use href="#icon-play" /></svg><span>一键体验（用演示数据跑一遍）</span>
+          </button>
+          <button class="ghost-button" id="welcomeStart" type="button">
+            <svg><use href="#icon-rocket" /></svg><span>填我的产品，直接开始</span>
+          </button>
+        </div>
+        <button class="welcome-later" id="welcomeLater" type="button">以后再说</button>
+      </div>
+    </div>
+
+    <div class="quote-overlay" id="quoteOverlay" hidden></div>
+
+    <div class="quote-overlay" id="reportOverlay" hidden></div>
+
+    <div class="drawer-overlay" id="crmDrawerOverlay" hidden>
+      <aside class="drawer" id="crmDrawer" role="dialog" aria-modal="true" aria-label="客户详情"></aside>
+    </div>
+
+    <!-- D2：潜客详情抽屉（420px，不跳页，保持列表上下文） -->
+    <div class="drawer-overlay" id="prospectDrawerOverlay" hidden>
+      <aside class="drawer prospect-drawer" role="dialog" aria-modal="true" aria-label="潜客详情">
+        <button class="drawer-close" data-prospect-drawer-close type="button" aria-label="关闭">
+          <svg><use href="#icon-x" /></svg>
+        </button>
+        <section class="detail-panel" id="prospectDetail"></section>
+      </aside>
+    </div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+    <script src="./app.js?v=76a43d03" defer></script>
+    <script>
+      // 缓存哨兵：若浏览器仍加载旧版 app.js（版本不匹配或加载失败导致按钮失灵），给出明确提示
+      window.addEventListener("load", () => {
+        if (window.__APP_V !== "76a43d03") {
+          const tip = document.createElement("div");
+          tip.style.cssText =
+            "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 16px;background:#c2410c;color:#fff;font-size:14px;text-align:center;font-weight:700;";
+          tip.textContent = "检测到浏览器缓存了旧版本页面，请按 Ctrl+F5（Mac: Cmd+Shift+R）强制刷新后使用。";
+          document.body.appendChild(tip);
+        }
+      });
+    </script>
+  </body>
+</html>

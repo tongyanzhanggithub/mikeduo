@@ -1,0 +1,70 @@
+{
+  "name": "mikeduo",
+  "productName": "觅客舵",
+  "version": "1.0.0",
+  "description": "觅客舵 · 本地买断制 AI 外贸获客工作台",
+  "main": "main.js",
+  "author": "aaron tong",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "npm run build && electron-builder --win",
+    "build": "node build.mjs",
+    "icon": "node tools/make-icon.mjs",
+    "test": "node tools/test-send-guard.mjs && node tools/test-license.mjs",
+    "test:desktop": "electron tools/test-desktop.js && electron tools/test-mail.js && electron tools/test-customs.js",
+    "gen-key": "node tools/gen-key.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "imapflow": "^1.6.5",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "electron": "^31.7.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mikeduo.app",
+    "productName": "觅客舵",
+    "artifactName": "MiKeDuo-Setup-v${version}.${ext}",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "package.json",
+      "main.js",
+      "preload.js",
+      "electron/**/*",
+      "index.html",
+      "app.js",
+      "styles.css",
+      "logo-mark.svg",
+      "logo-lockup.svg",
+      "icon.ico",
+      "favicon.png"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "REPLACE_ME",
+        "repo": "mikeduo-release"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "觅客舵",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico"
+    }
+  }
+}

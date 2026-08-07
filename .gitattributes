@@ -1,0 +1,9 @@
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.js  text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md  text eol=lf
+# SVG 是文本，也会进构建哈希：不钉死行尾，autocrlf 机器与非 autocrlf 机器会算出不同版本戳
+*.svg text eol=lf

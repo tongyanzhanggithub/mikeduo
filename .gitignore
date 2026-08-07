@@ -1,0 +1,9 @@
+node_modules/
+dist-desktop/
+npm-debug.log*
+
+# 编辑器本机状态（Visual Studio），换机器没有意义
+.vs/
+
+# 签发私钥：泄露 = 任何人都能自己造激活码。绝不入库、绝不外发。
+tools/keys/

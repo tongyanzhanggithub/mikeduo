@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">觅客舵标志</title>
+  <desc id="desc">蓝色渐变圆角方形中的极简 M 航标。</desc>
+  <defs>
+    <linearGradient id="mkdLogoBg" x1="20" y1="18" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb" />
+      <stop offset="1" stop-color="#0f9f8f" />
+    </linearGradient>
+    <linearGradient id="mkdLogoGlow" x1="36" y1="24" x2="92" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".62" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="104" height="104" rx="26" fill="url(#mkdLogoBg)" />
+  <path d="M38 88V42l26 29 26-29v46" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M64 71 90 42v46" fill="none" stroke="#dff7ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity=".72" />
+  <rect x="12" y="12" width="104" height="104" rx="26" fill="url(#mkdLogoGlow)" />
+</svg>

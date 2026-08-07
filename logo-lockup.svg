@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" role="img" aria-labelledby="title desc">
+  <title id="title">觅客舵 Logo</title>
+  <desc id="desc">觅客舵的轻量 AI 助手风格横版标志，图形为极简 M 航标。</desc>
+  <defs>
+    <linearGradient id="mkdLockupBg" x1="10" y1="10" x2="78" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb" />
+      <stop offset="1" stop-color="#0f9f8f" />
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="80" height="80" rx="20" fill="url(#mkdLockupBg)" />
+  <path d="M29 68V32l19 22 19-22v36" fill="none" stroke="#fff" stroke-width="10.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M48 54 67 32v36" fill="none" stroke="#dff7ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".72" />
+  <text x="108" y="45" fill="#132033" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="30" font-weight="800">觅客舵</text>
+  <text x="110" y="68" fill="#647286" font-family="Segoe UI, Microsoft YaHei UI, PingFang SC, sans-serif" font-size="14" font-weight="600" letter-spacing=".8">AI Export Lead Assistant</text>
+</svg>
