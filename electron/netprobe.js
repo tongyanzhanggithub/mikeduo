@@ -220,13 +220,34 @@ function extractEmails(html, sourceUrl) {
   return [...found.values()].sort((a, b) => a.rank - b.rank);
 }
 
+// 只认 tel: 和 phone 的话，外贸网站上最常见的几种写法全会漏：
+// "WhatsApp: +86 138..."、"Mob: ..."、"Cell: ..."、"M: ..."。外贸客户尤其
+// 爱把 WhatsApp 号单独列出来，漏掉它等于把最容易触达的渠道丢了。
+const PHONE_LABEL = "tel|telephone|phone|mobile|mob|cell|whats\\s?app|wa|contact";
+
 function extractPhones(html) {
   const out = new Set();
-  for (const m of html.matchAll(/(?:tel:|phone[^0-9+]{0,12})(\+?[\d][\d\s().-]{6,20}\d)/gi)) {
-    const digits = m[1].replace(/[^\d+]/g, "");
-    if (digits.replace(/\D/g, "").length >= 7) out.add(digits);
+  const add = (raw) => {
+    const digits = String(raw).replace(/[^\d+]/g, "");
+    // 7 位是最短的可拨号码；20 位以上基本是把订单号错当电话
+    const n = digits.replace(/\D/g, "").length;
+    if (n >= 7 && n <= 15) out.add(digits);
+  };
+  for (const m of html.matchAll(
+    new RegExp(`(?:tel:|(?:${PHONE_LABEL})[^0-9+]{0,12})(\\+?[\\d][\\d\\s().-]{6,20}\\d)`, "gi")
+  )) {
+    add(m[1]);
   }
   return [...out].slice(0, 5);
+}
+
+// wa.me/8613800138000 与 api.whatsapp.com/send?phone=... 里的数字**就是**
+// WhatsApp 号本身，比任何标签旁边的号码都可靠——单独抽出来，别只当社媒链接存着。
+function extractWhatsappPhone(html) {
+  const m = /(?:wa\.me\/|api\.whatsapp\.com\/send\/?\?phone=)(\+?\d{7,15})/i.exec(html);
+  if (!m) return "";
+  const digits = m[1].replace(/[^\d+]/g, "");
+  return digits.replace(/\D/g, "").length >= 7 ? (digits.startsWith("+") ? digits : `+${digits}`) : "";
 }
 
 function extractSocial(html, baseUrl) {
@@ -338,6 +359,7 @@ async function harvestSite(website, opts = {}) {
   const phones = new Set();
   const facts = [];
   let social = {};
+  let whatsappPhone = "";
   let blockedByRobots = 0;
 
   const visit = async (url) => {
@@ -358,6 +380,7 @@ async function harvestSite(website, opts = {}) {
       if (!emails.has(e.email)) emails.set(e.email, e);
     });
     extractPhones(res.html).forEach((p) => phones.add(p));
+    if (!whatsappPhone) whatsappPhone = extractWhatsappPhone(res.html);
     social = { ...extractSocial(res.html, res.url), ...social };
     extractFacts(res.html, res.url).forEach((f) => {
       if (facts.length < 14 && !facts.some((x) => x.text === f.text)) facts.push(f);
@@ -404,7 +427,9 @@ async function harvestSite(website, opts = {}) {
     emails: list
       .map((e) => ({ ...e, sameDomain: e.email.split("@")[1] === siteDomain }))
       .sort((a, b) => Number(b.sameDomain) - Number(a.sameDomain) || a.rank - b.rank),
-    phones: [...phones],
+    // wa.me 里的号码排在最前：它是对方自己挂出来的 WhatsApp 入口，能直接聊
+    phones: [...new Set([whatsappPhone, ...phones].filter(Boolean))],
+    whatsappPhone,
     social,
     facts,
     visited,
@@ -748,5 +773,14 @@ module.exports = {
   verifyEmail,
   resetProbeState,
   // 导出给单测用
-  _internals: { extractEmails, extractPhones, extractSocial, extractFacts, contactLinks, rankEmail, robotsAllows }
+  _internals: {
+    extractEmails,
+    extractPhones,
+    extractWhatsappPhone,
+    extractSocial,
+    extractFacts,
+    contactLinks,
+    rankEmail,
+    robotsAllows
+  }
 };

@@ -293,7 +293,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "fcfea423";
+window.__APP_V = "63195aca";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -15613,7 +15613,17 @@ function applyHarvest(prospectId, harvest) {
       next.contactSourceUrl = candidates[0].source_url;
       if (next.status === "待查联系人") next.status = "待联系";
     }
-    if (harvest.phones?.length && !next.phone) next.phone = harvest.phones[0];
+    // wa.me 的号码优先——那是对方挂出来的 WhatsApp 入口，拿到就能直接聊。
+    const phone = harvest.whatsappPhone || harvest.phones?.[0] || "";
+    if (phone && !next.phone) {
+      next.phone = phone;
+      // 以前这里只写 phone、不动 phoneStatus，它就一直停在"待查找"。
+      // 而「有 WhatsApp」的判定是 `phone && phoneStatus !== "待查找"`，
+      // 结果号码明明抓到了、存进去了，界面上却永远显示待查找。
+      next.phoneStatus = "待人工确认";
+      next.phoneSource = harvest.whatsappPhone ? "官网 WhatsApp 入口" : "官网公示";
+      next.phoneSourceUrl = harvest.site || next.contactSourceUrl || "";
+    }
     if (harvest.social && Object.keys(harvest.social).length) {
       next.social = { ...(next.social || {}), ...harvest.social };
       if (harvest.social.linkedin && !next.linkedin) next.linkedin = harvest.social.linkedin;
@@ -15622,7 +15632,9 @@ function applyHarvest(prospectId, harvest) {
     next.harvestPages = (harvest.visited || []).length;
     return next;
   });
-  return candidates.length > 0;
+  // 只抓到电话/WhatsApp 也算有收获。以前这里只看邮箱，于是号码已经存进去了，
+  // 日志却报「没有公示邮箱」，用户以为白跑一趟。
+  return candidates.length > 0 || !!(harvest.whatsappPhone || harvest.phones?.length);
 }
 
 // 抓一家公司的官网。返回 "website" | "none" | "skip"
@@ -15648,12 +15660,21 @@ async function harvestProspectSite(prospectId, quiet = false) {
     const pages = (res.visited || []).length;
     if (got) {
       const p2 = state.prospects.find((p) => p.id === prospectId);
+      // 分开报邮箱和号码：只抓到号码时，以前会被当成"什么都没抓到"
+      const parts = [];
+      if (p2.email) parts.push(`邮箱 ${p2.email}`);
+      if (p2.phone) parts.push(`${res.whatsappPhone ? "WhatsApp" : "电话"} ${p2.phone}`);
       addLog(
-        `官网抓到真实联系方式：${prospect.company} → ${p2.email}（抓了 ${pages} 页，出处 ${p2.contactSourceUrl}）。` +
-          `这是企业自己公示的地址，不是推测。`
+        `官网抓到真实联系方式：${prospect.company} → ${parts.join("、")}（抓了 ${pages} 页，出处 ${
+          p2.contactSourceUrl || p2.phoneSourceUrl || res.site
+        }）。这是企业自己公示的，不是推测。`
       );
     } else {
-      addLog(`${prospect.company} 官网抓了 ${pages} 页，没有公示邮箱${res.blockedByRobots ? `（${res.blockedByRobots} 页被 robots.txt 拒绝）` : ""}`);
+      addLog(
+        `${prospect.company} 官网抓了 ${pages} 页，没有公示邮箱或号码${
+          res.blockedByRobots ? `（${res.blockedByRobots} 页被 robots.txt 拒绝）` : ""
+        }`
+      );
     }
   }
   return got ? "website" : "none";
@@ -15661,11 +15682,14 @@ async function harvestProspectSite(prospectId, quiet = false) {
 
 // 批量抓。给进度、可中止、不并发轰炸（主进程那层已限流到 3）
 async function batchHarvestSites(ids) {
+  // 以前这里是 `!p.email`：只要线索已经有邮箱就整条跳过，于是它的电话和
+  // WhatsApp 永远不会被查。而粘贴导入本来就常常带出邮箱——最该补号码的那批，
+  // 恰恰一条都没被抓过。改成邮箱或号码缺任意一个就值得跑一趟。
   const targets = (ids || [])
     .map((id) => state.prospects.find((p) => p.id === id))
-    .filter((p) => p && p.website && !p.email);
+    .filter((p) => p && p.website && (!p.email || !p.phone));
   if (!targets.length) {
-    addLog("没有需要抓的线索（要有官网、且还没有邮箱）");
+    addLog("没有需要抓的线索（要有官网，且邮箱或 WhatsApp 号至少缺一个）");
     return;
   }
   if (!netReady()) {
@@ -15686,9 +15710,9 @@ async function batchHarvestSites(ids) {
   const rate = Math.round((hit / targets.length) * 100);
   runDone(
     `抓到 ${hit}/${targets.length} 家（${rate}%）`,
-    hit ? "全部来自企业官网公示，可点开出处核对" : "这批公司官网上都没有公示邮箱"
+    hit ? "全部来自企业官网公示，可点开出处核对" : "这批公司官网上既没有公示邮箱，也没有号码"
   );
-  addLog(`官网抓取完成：${targets.length} 家里拿到 ${hit} 家真实邮箱（${rate}%），零编造`);
+  addLog(`官网抓取完成：${targets.length} 家里拿到 ${hit} 家真实联系方式（邮箱或 WhatsApp 号，${rate}%），零编造`);
 }
 
 /* ============================== 邮箱存在性验证 ============================== */

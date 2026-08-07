@@ -17,7 +17,8 @@ import assert from "node:assert/strict";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const np = require(join(root, "electron", "netprobe.js"));
-const { extractEmails, extractFacts, rankEmail, robotsAllows, extractSocial } = np._internals;
+const { extractEmails, extractFacts, rankEmail, robotsAllows, extractSocial, extractPhones, extractWhatsappPhone } =
+  np._internals;
 
 let passed = 0;
 const check = (name, fn) => {
@@ -216,6 +217,43 @@ check("标记不对口时，绝不把用户自己的产品词加进排除词", (
   assert.equal(got.includes("quadcopter"), false);
   // 但"这是工厂不是买家"的信号要留下来
   assert.equal(got.includes("factory") || got.includes("manufacturer"), true);
+});
+
+/* ---------- HAO MA CHOU QU ---------- */
+
+check("tel: 链接与 Phone: 标签都能抽出号码", () => {
+  const got = extractPhones('<a href="tel:+8613800138000">call</a> Phone: +1 (415) 555-0132');
+  assert.equal(got.includes("+8613800138000"), true);
+  assert.equal(got.includes("+14155550132"), true);
+});
+
+check("WhatsApp / Mob / Cell 这些标签以前全漏，现在能抽到", () => {
+  const html = "WhatsApp: +86 138 0013 8001<br>Mob: +44 7700 900123<br>Cell: +1 415 555 0199";
+  const got = extractPhones(html);
+  assert.equal(got.includes("+8613800138001"), true, "WhatsApp label");
+  assert.equal(got.includes("+447700900123"), true, "Mob label");
+  assert.equal(got.includes("+14155550199"), true, "Cell label");
+});
+
+check("wa.me 链接里的数字直接当成 WhatsApp 号，并补上 +", () => {
+  assert.equal(extractWhatsappPhone('<a href="https://wa.me/8613800138000">chat</a>'), "+8613800138000");
+  assert.equal(
+    extractWhatsappPhone('<a href="https://api.whatsapp.com/send?phone=447700900123">x</a>'),
+    "+447700900123"
+  );
+});
+
+check("没有 WhatsApp 入口时返回空串，不瞎猜", () => {
+  assert.equal(extractWhatsappPhone("<p>Tel: +1 415 555 0132</p>"), "");
+});
+
+check("订单号那种超长数字串不会被当成电话", () => {
+  const got = extractPhones("Order phone reference 123456789012345678901234");
+  assert.equal(got.some((x) => x.replace(/\D/g, "").length > 15), false);
+});
+
+check("太短的数字不算电话", () => {
+  assert.equal(extractPhones("Tel: 12345").length, 0);
 });
 
 console.log(`\n${passed} 项全部通过`);
