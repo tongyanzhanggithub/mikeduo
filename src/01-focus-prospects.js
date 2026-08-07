@@ -344,7 +344,10 @@ function readSettingsFromForm() {
     emailProvider: elements.emailProvider.value,
     crmProvider: elements.crmProvider.value,
     aiApiKey: elements.aiApiKeyInput.value.trim(),
-    aiProvider: elements.aiProviderSelect ? elements.aiProviderSelect.value : state.settings.aiProvider || "anthropic",
+    // 下拉里没有匹配项时 .value 是空串，直接存下去会让 aiProviderId() 兜底成
+    // anthropic——用户明明选了 DeepSeek，却被悄悄换回 Claude。空值一律保留原设置。
+    // （aiModel 早先踩过同样的坑，readAiModelFromForm() 就是这么兜的。）
+    aiProvider: (elements.aiProviderSelect?.value || "").trim() || state.settings.aiProvider || "anthropic",
     aiBaseUrl: elements.aiBaseUrlInput ? elements.aiBaseUrlInput.value.trim() : state.settings.aiBaseUrl || "",
     aiModel: readAiModelFromForm(),
     serpApiKey: elements.serpApiKeyInput ? elements.serpApiKeyInput.value.trim() : state.settings.serpApiKey || "",
