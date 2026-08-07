@@ -293,7 +293,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "13934109";
+window.__APP_V = "4782aad5";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -1373,7 +1373,7 @@ function renderFocusHint() {
       c.buyerHint ? `<br />目标买家：${escapeHtml(c.buyerHint)}` : ""
     }${segLine}${exLine}`;
   } else if (c.focusProduct) {
-    elements.focusHint.textContent = `已按原文聚焦「${c.focusProduct}」——配置 Claude 后点「AI 细化定位」可自动翻译成行业术语并扩展同义词`;
+    elements.focusHint.textContent = `已按原文聚焦「${c.focusProduct}」——配好 AI 引擎后点「AI 细化定位」可自动翻译成行业术语并扩展同义词`;
   } else {
     elements.focusHint.textContent = "";
   }
@@ -1392,12 +1392,12 @@ async function refineProductFocus() {
     state.campaign.product = raw;
     bindCampaignForm();
     state.searchPlan = generateSearchPlan(state.campaign);
-    addLog(`已按原文聚焦「${raw}」（未配置 Claude，无法翻译/扩展同义词；建议到设置配置 AI 引擎）`);
+    addLog(`已按原文聚焦「${raw}」（还没配 AI 引擎，无法翻译/扩展同义词；去「设置 → AI 引擎」配一个）`);
     saveState();
     render();
     return;
   }
-  addLog(`Claude 正在细化定位「${raw}」…`);
+  addLog(`${aiShortName()} 正在细化定位「${raw}」…`);
   renderLogs();
   try {
     const system =
@@ -2835,11 +2835,11 @@ function renderTimeline(conversation) {
       : summarizeConversation(conversation);
     const suggestion = stored?.suggested_reply || suggestReply(prospect, intent.key);
     const sourceTag = stored
-      ? `<span class="channel-badge whatsapp">Claude · ${escapeHtml(stored.model || "")}</span>`
+      ? `<span class="channel-badge whatsapp">${escapeHtml(aiShortName())} · ${escapeHtml(stored.model || "")}</span>`
       : `<span class="tag">本地规则</span>`;
     const analyzeBtn =
       !stored && aiEnabled()
-        ? `<button class="ghost-button" data-inbox-action="ai-analyze" type="button"><svg><use href="#icon-zap" /></svg><span>用 Claude 分析</span></button>`
+        ? `<button class="ghost-button" data-inbox-action="ai-analyze" type="button"><svg><use href="#icon-zap" /></svg><span>用 ${escapeHtml(aiShortName())} 分析</span></button>`
         : "";
     const risks = conversationRisks(conversation.prospectId);
     const riskBlock = risks.length
@@ -7979,6 +7979,15 @@ function aiProviderId() {
 function aiProviderConf() {
   return AI_PROVIDERS[aiProviderId()] || AI_PROVIDERS.anthropic;
 }
+// 日志里报的是「谁在干活」，必须是用户自己选的那家。以前一律写死「Claude」，
+// 用户配了 DeepSeek 也照样看到「Claude 正在细化定位」，会以为设置没生效。
+// label 太长（"通义千问 Qwen（阿里）"），截到第一个空格或括号之前当简称。
+// 注意：只有走 callAI 的通用能力才该用它；联网找客户走 callClaudeWebSearch，
+// 那是 Anthropic 独有的服务端工具，那些提示里的「Claude」是事实，不要替换。
+function aiShortName() {
+  const label = aiProviderConf().label || "AI";
+  return label.split(/[\s（(]/)[0] || label;
+}
 // 中转站 / 自建网关：任何服务商都可以填 Base URL 覆盖官方地址（自定义服务商则必填）
 function aiBaseUrlOverride() {
   return (state.settings.aiBaseUrl || "").trim();
@@ -8251,11 +8260,11 @@ async function enrichInboundWithAI(prospectId, force = false) {
     if (!result) return;
     message.ai = { ...result, model: state.settings.aiModel, at: Date.now() };
     const riskNote = result.risks?.length ? `，⚠️ ${result.risks.length} 项风险` : "";
-    addLog(`Claude 分析完成（${result.intent_label} · 置信度 ${result.confidence}%${riskNote}）：${message.company}`);
+    addLog(`${aiShortName()} 分析完成（${result.intent_label} · 置信度 ${result.confidence}%${riskNote}）：${message.company}`);
     saveState();
     render();
   } catch (error) {
-    addLog(`Claude 分析失败，已用本地规则兜底：${error.message}`);
+    addLog(`${aiShortName()} 分析失败，已用本地规则兜底：${error.message}`);
   }
 }
 
@@ -9178,10 +9187,10 @@ async function generateSequenceAI() {
     return;
   }
   if (!aiEnabled()) {
-    showAiSetup("深度写信需要先配置 Claude API：请填入 Anthropic API Key 后点击「测试连接」");
+    showAiSetup("深度写信需要先配置 AI 引擎：填入 API Key 后点击「测试连接」");
     return;
   }
-  addLog(`Claude 正在为 ${prospect.company} 深度写信…`);
+  addLog(`${aiShortName()} 正在为 ${prospect.company} 深度写信…`);
   try {
     const system =
       "你是顶尖外贸开发信专家。为指定客户写一套 4 封开发信序列（D0 首触 / D3 跟进 / D7 案例或样品 / D14 收尾）。每封 90-140 词。风格要求：专业、正式、得体的 B2B 商务书面语——用正式称呼（如 Dear Mr./Ms. 或 Dear Sir or Madam），完整礼貌的句子，克制不浮夸、无感叹号轰炸、无营销套话；开头简述来意与对我方的简短可信介绍，中段给具体而克制的价值点，结尾一个清晰礼貌的行动请求（如 May I send our catalogue?），落款用 Best regards 加署名与公司名。围绕该客户的业务与市场个性化切入。若给了「具体产品聚焦/英文术语」，主题与正文要点名这个具体产品（用英文行业叫法），而非泛泛的品类；卖点与能力只能用给定的知识库/卖点，不要编造参数。label 用中文。语言规则：按客户市场的商务语言写正文——拉美用西班牙语（巴西用葡萄牙语）、法语区非洲用法语、中东可英语正文+阿语问候；首封在正文下附简短英文版本；其他市场用英文。合规：每封信结尾附一句专业的退订说明（英文，如让对方回复 unsubscribe 即不再打扰），语气礼貌自然。";
@@ -9205,11 +9214,11 @@ async function generateSequenceAI() {
       body: hasUnsubscribeElement(email.body) ? email.body : `${email.body}\n\n${UNSUBSCRIBE_LINE}`,
       ai: true
     }));
-    addLog(`Claude 已生成 ${state.sequence.length} 封深度个性化开发信：${prospect.company}`);
+    addLog(`${aiShortName()} 已生成 ${state.sequence.length} 封深度个性化开发信：${prospect.company}`);
     saveState();
     render();
   } catch (error) {
-    addLog(`Claude 写信失败：${error.message}`);
+    addLog(`${aiShortName()} 写信失败：${error.message}`);
   }
 }
 
@@ -9631,7 +9640,7 @@ async function parseAgentTask() {
   let source = "local";
   let aiError = "";
   if (aiEnabled()) {
-    elements.agentEngineTag.textContent = "Claude 解析中…";
+    elements.agentEngineTag.textContent = `${aiShortName()} 解析中…`;
     try {
       parsed = await callAI(
         "你是外贸获客任务解析器。把用户的一句话客户开发需求解析为结构化任务。markets 必须是英文国家/地区名；keywords 用英文并扩展同义词与当地行业术语；未提及的条件给合理默认值。",
@@ -9642,7 +9651,7 @@ async function parseAgentTask() {
       source = "claude";
     } catch (error) {
       aiError = error.message;
-      addLog(`Claude 解析失败，已用本地规则：${error.message}`);
+      addLog(`${aiShortName()} 解析失败，已用本地规则：${error.message}`);
     }
   }
   if (!parsed) {
@@ -9662,7 +9671,7 @@ async function parseAgentTask() {
     startedAt: timestamp()
   };
   state.agent.approvals = [];
-  addLog(`任务解析完成（${source === "claude" ? "Claude" : "本地规则"}）：请在任务卡片中确认后启动`);
+  addLog(`任务解析完成（${source === "claude" ? aiShortName() : "本地规则"}）：请在任务卡片中确认后启动`);
   // 降级到本地规则也算跑通了，但要说清楚是降级来的，别让用户以为 AI 生效了
   runDone(
     aiError
@@ -10104,7 +10113,7 @@ async function generateAutoReply(prospect, customerText, intentKey) {
       const text = await callAI(system, user, null, 700);
       if (text) return text.trim();
     } catch (error) {
-      addLog(`Claude 自动应答失败，改用模板：${error.message}`);
+      addLog(`${aiShortName()} 自动应答失败，改用模板：${error.message}`);
     }
   }
   return autoReplyTemplate(prospect, intentKey);
@@ -10267,7 +10276,7 @@ function renderAgentTaskCard() {
   }
   card.hidden = false;
   const parsed = task.parsed;
-  const sourceTag = task.source === "claude" ? "Claude 解析" : "本地规则解析";
+  const sourceTag = task.source === "claude" ? `${aiShortName()} 解析` : "本地规则解析";
 
   if (task.status !== "draft") {
     const modeLabel = { review: "逐条审批", spot: "批量审批", auto: "批量审批" }[task.approvalMode] || "逐条审批";
@@ -10366,7 +10375,7 @@ function renderAgentSteps() {
   const sent = state.outbox.filter((o) => o.status === "已发送").length;
   const approvedCount = approvals.filter((a) => a.status === "approved").length;
   const steps = [
-    ["任务解析", !!task, task ? (task.source === "claude" ? "Claude" : "本地规则") : "待下达"],
+    ["任务解析", !!task, task ? (task.source === "claude" ? aiShortName() : "本地规则") : "待下达"],
     ["自动寻客", (task?.funnel.raw || 0) > 0, task ? `${task.funnel.raw} 条原始线索` : "—"],
     ["触达审批", approvals.length > 0 && !approvals.some((a) => a.status === "pending"), `${approvedCount}/${approvals.length} 已批准`],
     ["自动开发", sent > 0, `${sent} 次已发送`],
@@ -10545,7 +10554,7 @@ function renderAgentDevelop() {
 
 function renderAgent() {
   if (!elements.agentTaskCard) return;
-  elements.agentEngineTag.textContent = aiEnabled() ? `Claude 解析 · ${state.settings.aiModel}` : "本地规则解析";
+  elements.agentEngineTag.textContent = aiEnabled() ? `${aiShortName()} 解析 · ${state.settings.aiModel}` : "本地规则解析";
   renderAgentTaskCard();
   renderAgentSteps();
   renderAgentFunnel();
@@ -12969,7 +12978,7 @@ elements.inboxLayout.addEventListener("click", async (event) => {
   }
 
   if (action === "ai-analyze") {
-    addLog("Claude 分析中…");
+    addLog(`${aiShortName()} 分析中…`);
     renderLogs();
     enrichInboundWithAI(prospectId, true);
     return;

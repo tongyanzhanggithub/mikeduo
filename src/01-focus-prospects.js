@@ -73,7 +73,7 @@ function renderFocusHint() {
       c.buyerHint ? `<br />目标买家：${escapeHtml(c.buyerHint)}` : ""
     }${segLine}${exLine}`;
   } else if (c.focusProduct) {
-    elements.focusHint.textContent = `已按原文聚焦「${c.focusProduct}」——配置 Claude 后点「AI 细化定位」可自动翻译成行业术语并扩展同义词`;
+    elements.focusHint.textContent = `已按原文聚焦「${c.focusProduct}」——配好 AI 引擎后点「AI 细化定位」可自动翻译成行业术语并扩展同义词`;
   } else {
     elements.focusHint.textContent = "";
   }
@@ -92,12 +92,12 @@ async function refineProductFocus() {
     state.campaign.product = raw;
     bindCampaignForm();
     state.searchPlan = generateSearchPlan(state.campaign);
-    addLog(`已按原文聚焦「${raw}」（未配置 Claude，无法翻译/扩展同义词；建议到设置配置 AI 引擎）`);
+    addLog(`已按原文聚焦「${raw}」（还没配 AI 引擎，无法翻译/扩展同义词；去「设置 → AI 引擎」配一个）`);
     saveState();
     render();
     return;
   }
-  addLog(`Claude 正在细化定位「${raw}」…`);
+  addLog(`${aiShortName()} 正在细化定位「${raw}」…`);
   renderLogs();
   try {
     const system =

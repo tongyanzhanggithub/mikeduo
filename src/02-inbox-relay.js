@@ -331,11 +331,11 @@ function renderTimeline(conversation) {
       : summarizeConversation(conversation);
     const suggestion = stored?.suggested_reply || suggestReply(prospect, intent.key);
     const sourceTag = stored
-      ? `<span class="channel-badge whatsapp">Claude · ${escapeHtml(stored.model || "")}</span>`
+      ? `<span class="channel-badge whatsapp">${escapeHtml(aiShortName())} · ${escapeHtml(stored.model || "")}</span>`
       : `<span class="tag">本地规则</span>`;
     const analyzeBtn =
       !stored && aiEnabled()
-        ? `<button class="ghost-button" data-inbox-action="ai-analyze" type="button"><svg><use href="#icon-zap" /></svg><span>用 Claude 分析</span></button>`
+        ? `<button class="ghost-button" data-inbox-action="ai-analyze" type="button"><svg><use href="#icon-zap" /></svg><span>用 ${escapeHtml(aiShortName())} 分析</span></button>`
         : "";
     const risks = conversationRisks(conversation.prospectId);
     const riskBlock = risks.length

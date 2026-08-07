@@ -152,7 +152,7 @@ async function generateAutoReply(prospect, customerText, intentKey) {
       const text = await callAI(system, user, null, 700);
       if (text) return text.trim();
     } catch (error) {
-      addLog(`Claude 自动应答失败，改用模板：${error.message}`);
+      addLog(`${aiShortName()} 自动应答失败，改用模板：${error.message}`);
     }
   }
   return autoReplyTemplate(prospect, intentKey);
@@ -315,7 +315,7 @@ function renderAgentTaskCard() {
   }
   card.hidden = false;
   const parsed = task.parsed;
-  const sourceTag = task.source === "claude" ? "Claude 解析" : "本地规则解析";
+  const sourceTag = task.source === "claude" ? `${aiShortName()} 解析` : "本地规则解析";
 
   if (task.status !== "draft") {
     const modeLabel = { review: "逐条审批", spot: "批量审批", auto: "批量审批" }[task.approvalMode] || "逐条审批";
@@ -414,7 +414,7 @@ function renderAgentSteps() {
   const sent = state.outbox.filter((o) => o.status === "已发送").length;
   const approvedCount = approvals.filter((a) => a.status === "approved").length;
   const steps = [
-    ["任务解析", !!task, task ? (task.source === "claude" ? "Claude" : "本地规则") : "待下达"],
+    ["任务解析", !!task, task ? (task.source === "claude" ? aiShortName() : "本地规则") : "待下达"],
     ["自动寻客", (task?.funnel.raw || 0) > 0, task ? `${task.funnel.raw} 条原始线索` : "—"],
     ["触达审批", approvals.length > 0 && !approvals.some((a) => a.status === "pending"), `${approvedCount}/${approvals.length} 已批准`],
     ["自动开发", sent > 0, `${sent} 次已发送`],
@@ -593,7 +593,7 @@ function renderAgentDevelop() {
 
 function renderAgent() {
   if (!elements.agentTaskCard) return;
-  elements.agentEngineTag.textContent = aiEnabled() ? `Claude 解析 · ${state.settings.aiModel}` : "本地规则解析";
+  elements.agentEngineTag.textContent = aiEnabled() ? `${aiShortName()} 解析 · ${state.settings.aiModel}` : "本地规则解析";
   renderAgentTaskCard();
   renderAgentSteps();
   renderAgentFunnel();
@@ -3017,7 +3017,7 @@ elements.inboxLayout.addEventListener("click", async (event) => {
   }
 
   if (action === "ai-analyze") {
-    addLog("Claude 分析中…");
+    addLog(`${aiShortName()} 分析中…`);
     renderLogs();
     enrichInboundWithAI(prospectId, true);
     return;
