@@ -1421,63 +1421,11 @@ function renderTodo() {
     `</div>`;
 }
 
-function renderChecklist() {
-  const host = elements.onboardingChecklist;
-  if (!host) return;
-  if (state.ui?.checklistDismissed) {
-    host.innerHTML = "";
-    return;
-  }
-  const prospects = activeProspects();
-  const outbox = activeOutboxItems();
-  const whatsappQueue = activeWhatsappQueueItems();
-  const inbound = activeInboundItems();
-  const steps = [
-    { label: "生成开发计划", hint: "填写产品与市场", done: state.searchPlan.length > 0, goto: "dashboard" },
-    { label: "导入搜索结果", hint: "粘贴官网/邮箱/CSV", done: prospects.length > 0, goto: "discovery" },
-    {
-      label: "线索入队触达",
-      hint: "审核线索并加入队列",
-      done: outbox.length + whatsappQueue.length > 0,
-      goto: "prospects"
-    },
-    {
-      label: "开启自动驾驶",
-      hint: "全流程自动流转",
-      done: !!state.autopilot?.enabled || outbox.some((o) => o.status === "已发送"),
-      action: "autopilot"
-    },
-    { label: "处理回复与审批", hint: "收件箱 + 审批中心", done: inbound.length > 0, goto: "inbox" }
-  ];
-  const doneCount = steps.filter((s) => s.done).length;
-  if (doneCount === steps.length) {
-    host.innerHTML = "";
-    return;
-  }
-  host.innerHTML = `
-    <div class="checklist-panel">
-      <div class="checklist-head">
-        <strong>快速上手 · ${doneCount}/${steps.length}</strong>
-        <button class="checklist-dismiss" data-checklist-dismiss type="button">不再显示</button>
-      </div>
-      <div class="checklist-steps">
-        ${steps
-          .map(
-            (step, index) => `
-              <button class="checklist-step ${step.done ? "done" : ""}" type="button" ${
-                step.action ? `data-checklist-action="${step.action}"` : `data-goto="${step.goto}"`
-              }>
-                <span class="step-dot">${step.done ? "✓" : index + 1}</span>
-                <span class="step-text"><strong>${step.label}</strong><small>${step.hint}</small></span>
-              </button>
-            `
-          )
-          .join("")}
-      </div>
-    </div>
-  `;
-}
-
+// 这里原本还有一个 renderChecklist()：它渲染 .checklist-panel 那套五步引导。
+// 但 08-commerce.js 里有同名函数，所有模块拼成一个 app.js 之后后者覆盖前者，
+// 这一份从来没有执行过——页面上 .checklist-panel 数量恒为 0。已连同它专属的
+// .checklist-* / .step-dot / .step-text 样式一并删除，控制台首页的引导以
+// 08 的 .ob-* 那套为准。
 /* ---------- 发送时机：按客户市场时区算最佳发送窗口（当地上午 9-11 点） ---------- */
 
 // 市场 → 大致 UTC 偏移（代表性时区，不处理夏令时，够指导发送时段即可）

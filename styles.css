@@ -74,8 +74,7 @@ svg {
   stroke-width: 2;
 }
 
-[hidden],
-.is-hidden {
+[hidden] {
   display: none !important;
 }
 
@@ -896,17 +895,6 @@ button.prospect-row.is-selected {
   cursor: pointer;
 }
 
-.outbox-controls .pf-summary {
-  font-size: 13px;
-  color: var(--muted);
-  margin-right: auto;
-}
-
-.pf-block-count {
-  color: #b42318;
-  font-weight: 700;
-}
-
 .pf-badge {
   font-size: 11px;
   font-weight: 700;
@@ -1216,8 +1204,7 @@ button.approval-card:hover {
 
 .job-board,
 .approval-list,
-.account-list,
-.pipeline-manager {
+.account-list {
   display: grid;
   gap: 10px;
   margin-top: 14px;
@@ -1225,8 +1212,7 @@ button.approval-card:hover {
 
 .job-card,
 .approval-card,
-.account-card,
-.pipeline-row {
+.account-card {
   display: grid;
   align-items: center;
   gap: 10px;
@@ -1237,8 +1223,7 @@ button.approval-card:hover {
 }
 
 .job-card,
-.account-card,
-.pipeline-row {
+.account-card {
   grid-template-columns: minmax(0, 1fr) minmax(110px, 0.6fr) auto;
 }
 
@@ -1448,8 +1433,7 @@ button.approval-card:hover {
   }
 
   .job-card,
-  .account-card,
-  .pipeline-row {
+  .account-card {
     grid-template-columns: 1fr;
   }
 
@@ -2489,89 +2473,6 @@ button.approval-card:hover {
 }
 
 /* ---------- 新手引导清单 ---------- */
-.checklist-panel {
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border: 1px solid #bfe0d9;
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, #f0f9f6, #ffffff);
-  box-shadow: var(--shadow);
-}
-
-.checklist-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.checklist-dismiss {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.checklist-dismiss:hover {
-  color: var(--ink);
-  text-decoration: underline;
-}
-
-.checklist-steps {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.checklist-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  cursor: pointer;
-  text-align: left;
-}
-
-.checklist-step:hover {
-  border-color: var(--teal);
-  transform: translateY(-1px);
-}
-
-.checklist-step .step-dot {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 99px;
-  background: #eef1ef;
-  color: var(--muted);
-  font-weight: 900;
-  font-size: 12px;
-}
-
-.checklist-step.done {
-  opacity: 0.75;
-}
-
-.checklist-step.done .step-dot {
-  background: #e6f4ea;
-  color: var(--green);
-}
-
-.checklist-step .step-text strong {
-  display: block;
-  font-size: 13px;
-}
-
-.checklist-step .step-text small {
-  color: var(--muted);
-  font-size: 11px;
-}
 
 /* ---------- 交互顺滑度 ---------- */
 .view.is-active {
@@ -2589,8 +2490,7 @@ button.approval-card:hover {
 .segment,
 .conversation-item,
 .crm-card,
-.prospect-row,
-.checklist-step {
+.prospect-row {
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
@@ -2607,9 +2507,6 @@ button.approval-card:hover {
 }
 
 @media (max-width: 1080px) {
-  .checklist-steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 760px) {
@@ -2628,9 +2525,6 @@ button.approval-card:hover {
 }
 
 @media (max-width: 480px) {
-  .checklist-steps {
-    grid-template-columns: 1fr;
-  }
 
   .toast-stack {
     right: 10px;
@@ -3170,13 +3064,11 @@ body.dark .crm-card.is-overdue {
 
 body.dark .ai-panel,
 body.dark .ai-score,
-body.dark .checklist-panel,
 body.dark .relay-bar {
   background: linear-gradient(180deg, rgba(15, 118, 110, 0.14), var(--surface));
   border-color: rgba(94, 234, 212, 0.25);
 }
 
-body.dark .checklist-step,
 body.dark .ai-suggestion {
   background: var(--surface);
   border-color: var(--line);
@@ -3271,9 +3163,7 @@ body.dark .prospect-row,
 body.dark .management-row,
 body.dark .mini-prospect,
 body.dark .job-card,
-body.dark .account-card,
-body.dark .approval-item,
-body.dark .pipeline-row {
+body.dark .account-card {
   background: var(--surface-soft);
   border-color: var(--line);
 }
@@ -3335,10 +3225,6 @@ body.dark .pf-badge.pf-warn {
 
 body.dark .pf-badge.pf-block {
   background: rgba(239, 68, 68, 0.16);
-  color: #f87171;
-}
-
-body.dark .pf-block-count {
   color: #f87171;
 }
 
@@ -3476,41 +3362,10 @@ body.dark .backup-overdue {
   font-size: 12px;
   opacity: 0.6;
 }
-.todo-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-.todo-row:first-of-type {
-  border-top: none;
-}
-.todo-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-}
-.todo-label svg {
-  width: 16px;
-  height: 16px;
-  stroke: currentColor;
-  fill: none;
-  opacity: 0.7;
-  flex: none;
-}
-.todo-act {
-  flex: none;
-}
 .todo-empty {
   font-size: 13px;
   opacity: 0.7;
   padding: 2px 0;
-}
-body.dark .todo-row {
-  border-top-color: rgba(255, 255, 255, 0.08);
 }
 
 /* 分析看板：优先联系名单 */
@@ -4028,8 +3883,6 @@ body.dark {
 /* 数据工具的教养：所有数字列对齐 */
 table,
 .score,
-.metric-value,
-.kpi-value,
 .crm-card,
 .prospect-table,
 .mkd-table,
@@ -4471,73 +4324,6 @@ table,
 }
 
 /* ---------- F6 五步引导 ---------- */
-
-.mkd-steps {
-  display: grid;
-  gap: 6px;
-}
-.mkd-step {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.mkd-step.is-current {
-  border-color: var(--teal);
-}
-.mkd-step-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  font-size: 13px;
-}
-.mkd-step.is-done .step-title {
-  color: var(--muted);
-  text-decoration: line-through;
-}
-.mkd-step .step-dot {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font-size: 11px;
-}
-.mkd-step.is-done .step-dot {
-  background: var(--green);
-  color: #fff;
-}
-.mkd-step.is-current .step-dot {
-  background: var(--teal);
-  color: #fff;
-}
-.mkd-step-body {
-  padding: 0 10px 10px 38px;
-  font-size: 12px;
-  line-height: 19px;
-  color: var(--muted);
-}
-.mkd-step-body b {
-  display: inline-block;
-  min-width: 84px;
-  color: var(--ink);
-  font-weight: 600;
-}
-.mkd-step-body p {
-  margin: 0 0 4px;
-}
-.mkd-step-foot {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
 
 /* ---------- F7 备份列表 ---------- */
 
@@ -5168,14 +4954,6 @@ body.dark .prospect-row.is-selected {
 .mkd-onboarding {
   padding: 0;
 }
-.checklist-head strong {
-  font-size: 14px;
-  font-weight: 600;
-}
-.mkd-step-body {
-  font-size: 12px;
-  line-height: 19px;
-}
 
 /* ---------- 航程条：与卡片同一套外观 ---------- */
 
@@ -5495,21 +5273,6 @@ body.dark .prob-grade.grade-C {
 }
 
 /* 预检汇总条：一行三色，扫一眼知道堵点在哪 */
-.outbox-toolbar,
-.pf-summary-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.pf-summary {
-  font-size: 12px;
-  color: var(--muted);
-}
-.pf-block-count {
-  color: var(--red);
-  font-weight: 600;
-}
 
 /* 队列条目：行式布局，别让长主题把卡片挤成竖排 */
 .outbox-item {
@@ -6748,7 +6511,6 @@ body.dark .search-box {
 .job-card,
 .approval-card,
 .account-card,
-.pipeline-row,
 .market-row,
 .template-row,
 .relay-impact .impact-row,
@@ -7598,7 +7360,6 @@ body.dark .panel {
 .job-card,
 .approval-card,
 .account-card,
-.pipeline-row,
 .market-row,
 .template-row,
 .relay-impact .impact-row,
@@ -7623,7 +7384,6 @@ body.dark .crm-card,
 body.dark .job-card,
 body.dark .approval-card,
 body.dark .account-card,
-body.dark .pipeline-row,
 body.dark .market-row,
 body.dark .template-row,
 body.dark .relay-impact .impact-row,
@@ -8844,15 +8604,6 @@ input[type="radio"] {
 }
 
 /* ---------- 联系人出处链接 ---------- */
-
-.contact-source-link {
-  font-size: 11px;
-  color: var(--muted, #64748b);
-  text-decoration: underline dotted;
-  overflow-wrap: anywhere;
-}
-
-.contact-source-link:hover { color: var(--brand, #2563eb); }
 
 /* 深色跟应用的主题开关走（body.dark），不跟系统偏好：系统深色+应用浅色时会撞风格 */
 body.dark .escort-tile.is-good { background: #052e16; border-color: #166534; }

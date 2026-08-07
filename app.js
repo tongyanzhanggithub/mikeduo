@@ -44,13 +44,6 @@ function editionLabel() {
   return MKD_LICENSE.activated ? MKD_LICENSE.tierLabel || TIER_LABELS[MKD_LICENSE.tier] || "正式版" : "试用版";
 }
 
-// 剩余可"联系"的线索数（不是可入池数——试用版导入不设限）。正式版无限。
-function leadCapacityLeft() {
-  if (!isTrial()) return Infinity;
-  const used = typeof state === "undefined" ? 0 : state.prospects.length;
-  return Math.max(0, TRIAL_LEAD_CAP - used);
-}
-
 /* ---------- 试用版：墙立在"联系"而不是"导入" ----------
    海关数据一导就是几百条买家。如果在入池处就截断，用户第一次导入直接撞墙，
    而那时他还没看到任何价值（邮箱没补、信没发、一个回复都没见着）。
@@ -293,7 +286,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "63195aca";
+window.__APP_V = "471acc2d";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -7555,63 +7548,11 @@ function renderTodo() {
     `</div>`;
 }
 
-function renderChecklist() {
-  const host = elements.onboardingChecklist;
-  if (!host) return;
-  if (state.ui?.checklistDismissed) {
-    host.innerHTML = "";
-    return;
-  }
-  const prospects = activeProspects();
-  const outbox = activeOutboxItems();
-  const whatsappQueue = activeWhatsappQueueItems();
-  const inbound = activeInboundItems();
-  const steps = [
-    { label: "生成开发计划", hint: "填写产品与市场", done: state.searchPlan.length > 0, goto: "dashboard" },
-    { label: "导入搜索结果", hint: "粘贴官网/邮箱/CSV", done: prospects.length > 0, goto: "discovery" },
-    {
-      label: "线索入队触达",
-      hint: "审核线索并加入队列",
-      done: outbox.length + whatsappQueue.length > 0,
-      goto: "prospects"
-    },
-    {
-      label: "开启自动驾驶",
-      hint: "全流程自动流转",
-      done: !!state.autopilot?.enabled || outbox.some((o) => o.status === "已发送"),
-      action: "autopilot"
-    },
-    { label: "处理回复与审批", hint: "收件箱 + 审批中心", done: inbound.length > 0, goto: "inbox" }
-  ];
-  const doneCount = steps.filter((s) => s.done).length;
-  if (doneCount === steps.length) {
-    host.innerHTML = "";
-    return;
-  }
-  host.innerHTML = `
-    <div class="checklist-panel">
-      <div class="checklist-head">
-        <strong>快速上手 · ${doneCount}/${steps.length}</strong>
-        <button class="checklist-dismiss" data-checklist-dismiss type="button">不再显示</button>
-      </div>
-      <div class="checklist-steps">
-        ${steps
-          .map(
-            (step, index) => `
-              <button class="checklist-step ${step.done ? "done" : ""}" type="button" ${
-                step.action ? `data-checklist-action="${step.action}"` : `data-goto="${step.goto}"`
-              }>
-                <span class="step-dot">${step.done ? "✓" : index + 1}</span>
-                <span class="step-text"><strong>${step.label}</strong><small>${step.hint}</small></span>
-              </button>
-            `
-          )
-          .join("")}
-      </div>
-    </div>
-  `;
-}
-
+// 这里原本还有一个 renderChecklist()：它渲染 .checklist-panel 那套五步引导。
+// 但 08-commerce.js 里有同名函数，所有模块拼成一个 app.js 之后后者覆盖前者，
+// 这一份从来没有执行过——页面上 .checklist-panel 数量恒为 0。已连同它专属的
+// .checklist-* / .step-dot / .step-text 样式一并删除，控制台首页的引导以
+// 08 的 .ob-* 那套为准。
 /* ---------- 发送时机：按客户市场时区算最佳发送窗口（当地上午 9-11 点） ---------- */
 
 // 市场 → 大致 UTC 偏移（代表性时区，不处理夏令时，够指导发送时段即可）
@@ -8370,42 +8311,6 @@ function highestRiskLevel(risks) {
 }
 
 /* ---------- 智能找联系方式（真实源 Webhook 优先 → Claude 推测 → 本地兜底） ---------- */
-
-const AI_CONTACT_SCHEMA = {
-  type: "object",
-  properties: {
-    contact_name: {
-      type: "string",
-      description:
-        "决策人姓名。只有当你确实掌握这家公司的公开人员信息时才填；不确定就留空字符串。严禁编造人名或使用占位姓名——编出来的名字会让使用者当着真实客户的面出丑"
-    },
-    contact_role: { type: "string", description: "决策人职位中文，如 采购经理 / Sourcing Manager；没有确切人名时填岗位方向即可" },
-    email_candidates: {
-      type: "array",
-      description:
-        "候选邮箱，全部使用给定域名。contact_name 为空时只给通用信箱（info@ / sales@ / contact@ / export@ / purchasing@），不要生成 firstname.lastname 这类依赖姓名的地址",
-      items: {
-        type: "object",
-        properties: {
-          email: { type: "string" },
-          confidence: { type: "integer", description: "0-100 可能性" },
-          pattern: { type: "string", description: "这个地址的来历：在网页上真实看到的填 verified，通用信箱填 functional。不要用 firstname.lastname 这类拼出来的模式" }
-        },
-        required: ["email", "confidence", "pattern"],
-        additionalProperties: false
-      }
-    },
-    company_profile: { type: "string", description: "一句话公司画像（业务、规模线索、采购可能性）" },
-    fit_note: { type: "string", description: "是否对口这次开发的判断，一句话" },
-    fit_score: {
-      type: "integer",
-      description:
-        "0-100 与本次任务的匹配度，必须诚实。信息平台、目录站、招投标网站、媒体、同行制造商、平台卖家都不是采购方，一律给 30 以下"
-    }
-  },
-  required: ["contact_name", "contact_role", "email_candidates", "company_profile", "fit_note", "fit_score"],
-  additionalProperties: false
-};
 
 // 低于这个匹配度就不再往下补联系方式：AI 自己都说不对口了，再给它编一个人名
 // 和五个猜的邮箱，是最伤信任的组合——用户会拿着这些东西去发真实客户。

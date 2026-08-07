@@ -691,42 +691,6 @@ function highestRiskLevel(risks) {
 
 /* ---------- 智能找联系方式（真实源 Webhook 优先 → Claude 推测 → 本地兜底） ---------- */
 
-const AI_CONTACT_SCHEMA = {
-  type: "object",
-  properties: {
-    contact_name: {
-      type: "string",
-      description:
-        "决策人姓名。只有当你确实掌握这家公司的公开人员信息时才填；不确定就留空字符串。严禁编造人名或使用占位姓名——编出来的名字会让使用者当着真实客户的面出丑"
-    },
-    contact_role: { type: "string", description: "决策人职位中文，如 采购经理 / Sourcing Manager；没有确切人名时填岗位方向即可" },
-    email_candidates: {
-      type: "array",
-      description:
-        "候选邮箱，全部使用给定域名。contact_name 为空时只给通用信箱（info@ / sales@ / contact@ / export@ / purchasing@），不要生成 firstname.lastname 这类依赖姓名的地址",
-      items: {
-        type: "object",
-        properties: {
-          email: { type: "string" },
-          confidence: { type: "integer", description: "0-100 可能性" },
-          pattern: { type: "string", description: "这个地址的来历：在网页上真实看到的填 verified，通用信箱填 functional。不要用 firstname.lastname 这类拼出来的模式" }
-        },
-        required: ["email", "confidence", "pattern"],
-        additionalProperties: false
-      }
-    },
-    company_profile: { type: "string", description: "一句话公司画像（业务、规模线索、采购可能性）" },
-    fit_note: { type: "string", description: "是否对口这次开发的判断，一句话" },
-    fit_score: {
-      type: "integer",
-      description:
-        "0-100 与本次任务的匹配度，必须诚实。信息平台、目录站、招投标网站、媒体、同行制造商、平台卖家都不是采购方，一律给 30 以下"
-    }
-  },
-  required: ["contact_name", "contact_role", "email_candidates", "company_profile", "fit_note", "fit_score"],
-  additionalProperties: false
-};
-
 // 低于这个匹配度就不再往下补联系方式：AI 自己都说不对口了，再给它编一个人名
 // 和五个猜的邮箱，是最伤信任的组合——用户会拿着这些东西去发真实客户。
 const FIT_OFF_TARGET = 40;

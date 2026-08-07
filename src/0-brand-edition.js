@@ -44,13 +44,6 @@ function editionLabel() {
   return MKD_LICENSE.activated ? MKD_LICENSE.tierLabel || TIER_LABELS[MKD_LICENSE.tier] || "正式版" : "试用版";
 }
 
-// 剩余可"联系"的线索数（不是可入池数——试用版导入不设限）。正式版无限。
-function leadCapacityLeft() {
-  if (!isTrial()) return Infinity;
-  const used = typeof state === "undefined" ? 0 : state.prospects.length;
-  return Math.max(0, TRIAL_LEAD_CAP - used);
-}
-
 /* ---------- 试用版：墙立在"联系"而不是"导入" ----------
    海关数据一导就是几百条买家。如果在入池处就截断，用户第一次导入直接撞墙，
    而那时他还没看到任何价值（邮箱没补、信没发、一个回复都没见着）。
