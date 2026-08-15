@@ -1131,6 +1131,37 @@ button.management-row.is-selected {
   grid-template-columns: minmax(200px, 1.4fr) minmax(140px, 0.9fr) 84px 56px 56px 56px 84px;
 }
 
+/* 全部活动总览：6 列（活动/线索/已触达/回复/回复率/询盘） */
+.management-row.overview-head,
+.management-row.overview-row {
+  grid-template-columns: minmax(200px, 1.6fr) 64px 76px 64px 76px 64px;
+}
+
+.management-row.overview-row.is-selected {
+  background: #f5fbf8;
+}
+
+/* 合计行：加粗上边框把它和明细分开，视觉上是"小计"不是又一个活动 */
+.management-row.overview-row.is-total {
+  border-top: 2px solid var(--line);
+  border-bottom: 0;
+  font-weight: 800;
+  background: #f7f9f8;
+}
+
+/* 询盘是北极星，单独给个颜色，扫一眼就知道哪个活动真出货 */
+.overview-star {
+  font-weight: 900;
+  color: var(--teal-dark);
+}
+
+body.dark .management-row.overview-row.is-total {
+  background: var(--surface-soft);
+}
+body.dark .overview-star {
+  color: var(--teal);
+}
+
 .management-row.campaign-row.is-selected {
   background: #f5fbf8;
 }

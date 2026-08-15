@@ -2891,6 +2891,19 @@ elements.analyticsRange.addEventListener("click", (event) => {
   renderAnalytics();
 });
 
+// 总览的时间窗单独存一份，不跟分析页共用：在管理页看「近 30 天全部活动」
+// 不该顺手把分析页也切成近 30 天。
+elements.overviewRange?.addEventListener("click", (event) => {
+  const segment = event.target.closest("[data-overview-range]");
+  if (!segment) return;
+  state.ui = { ...(state.ui || {}), overviewRange: segment.dataset.overviewRange };
+  elements.overviewRange.querySelectorAll("[data-overview-range]").forEach((s) => {
+    s.classList.toggle("is-active", s === segment);
+  });
+  saveState();
+  renderCampaignOverview();
+});
+
 elements.crmBoard.addEventListener("click", (event) => {
   if (Date.now() - crmLastDragAt < 300) return;
   const card = event.target.closest(".crm-card[data-prospect-id]");

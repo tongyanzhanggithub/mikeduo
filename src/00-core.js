@@ -237,6 +237,7 @@ const elements = {
   exportManagement: $("#exportManagement"),
   newManagedCampaign: $("#newManagedCampaign"),
   campaignManager: $("#campaignManager"),
+  campaignOverview: $("#campaignOverview"),
   resetJobs: $("#resetJobs"),
   jobBoard: $("#jobBoard"),
   approveAll: $("#approveAll"),
@@ -337,6 +338,7 @@ const elements = {
   crmDrawerOverlay: $("#crmDrawerOverlay"),
   crmDrawer: $("#crmDrawer"),
   analyticsRange: $("#analyticsRange"),
+  overviewRange: $("#overviewRange"),
   analyticsScope: $("#analyticsScope"),
   aiEngineStatus: $("#aiEngineStatus"),
   aiLocalMode: $("#aiLocalMode"),
@@ -750,6 +752,7 @@ function createDemoState() {
       checklistDismissed: false,
       theme: "light",
       analyticsRange: "all",
+      overviewRange: "all",
       sendApprovalMigrated: true,
       sentOnlyStageMigrated: true,
       starterTemplate: true

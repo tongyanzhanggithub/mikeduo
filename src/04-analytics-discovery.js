@@ -99,10 +99,33 @@ function axReplied(prospect) {
   return axInbound().some((m) => m.prospectId === prospect.id);
 }
 
-function computeFunnel() {
-  const prospects = activeProspects();
-  const outbox = axOutbox();
-  const wa = axWa();
+// 漏斗算法只此一份。分析页按当前活动算，管理页的跨活动总览按每个活动各算一遍
+// 再汇总——两处必须是同一套口径，否则「总览说这个活动 8 个询盘、点进去分析页
+// 说 6 个」这种事迟早发生，而且没人查得出是哪边错。
+//
+// prospects 传什么范围就算什么范围；rangeMs 为 null 表示不限时间。
+function funnelFor(prospects, rangeMs) {
+  const now = Date.now();
+  const inRange = (ts) => !rangeMs || (ts >= now - rangeMs && ts <= now + 86400000);
+  const ids = new Set(prospects.map((p) => p.id));
+
+  const outbox = (state.outbox || []).filter(
+    (o) => ids.has(o.prospectId) && inRange(toTime(o.sentAt || o.createdAt || o.dueDate))
+  );
+  const wa = (state.whatsappQueue || []).filter(
+    (w) => ids.has(w.prospectId) && inRange(toTime(w.sentAt || w.createdAt || w.dueDate))
+  );
+  const inbound = (state.inbound || []).filter((m) => ids.has(m.prospectId) && inRange(toTime(m.at || m.time)));
+
+  // 限了时间窗就只认窗口内真的来过信；不限时间才用客户身上的"已回复"标记。
+  // 否则选「近 7 天」会把三个月前回过信的客户算进本周回复率。
+  const repliedOf = (p) =>
+    rangeMs
+      ? inbound.some((m) => m.prospectId === p.id)
+      : inbound.some((m) => m.prospectId === p.id) ||
+        p.status === "已回复" ||
+        stageIndex(p.dealStage || "线索") >= stageIndex("已回复");
+
   const reached = prospects.filter(
     (p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)
   );
@@ -116,7 +139,7 @@ function computeFunnel() {
       outbox.some((o) => o.prospectId === p.id && o.opened) ||
       wa.some((w) => w.prospectId === p.id && w.read)
   );
-  const replied = reached.filter(axReplied);
+  const replied = reached.filter(repliedOf);
   const inquiry = prospects.filter((p) => stageIndex(p.dealStage) >= stageIndex("询盘"));
   // 前段获客阶段（合并原「线索阶段漏斗」）：线索总数 → 有联系方式
   const contactable = prospects.filter((p) => emailLooksValid(p.email) || p.phone);
@@ -129,6 +152,10 @@ function computeFunnel() {
     replied: replied.length,
     inquiry: inquiry.length
   };
+}
+
+function computeFunnel() {
+  return funnelFor(activeProspects(), analyticsRangeMs());
 }
 
 function renderAnalytics() {
@@ -589,9 +616,95 @@ function exportAnalytics() {
   download("analytics-metrics.csv", toCsv(rows), "text/csv");
 }
 
+function overviewRangeMs() {
+  const range = state.ui?.overviewRange || "all";
+  if (range === "7d") return 7 * 86400000;
+  if (range === "30d") return 30 * 86400000;
+  return null;
+}
+
+// 跨活动总览：分析页按活动分是对的（不同产品市场的回复率混算没意义），
+// 但「这三个月所有活动一共出了多少询盘」「哪个活动最值得继续投时间」
+// 分析页答不了。放在管理页而不是分析页，就是为了不动分析页的按活动口径。
+function renderCampaignOverview() {
+  const host = elements.campaignOverview;
+  if (!host) return;
+
+  const active = state.ui?.overviewRange || "all";
+  // 刷新后段选择器要跟着存下来的值走，否则重开永远高亮"全部"
+  elements.overviewRange?.querySelectorAll("[data-overview-range]").forEach((s) => {
+    s.classList.toggle("is-active", s.dataset.overviewRange === active);
+  });
+
+  const rangeMs = overviewRangeMs();
+  const rangeLabel = { "7d": "近 7 天", "30d": "近 30 天" }[active] || "全部时间";
+  const campaigns = state.management?.campaigns || [];
+
+  const rows = campaigns
+    .map((c) => {
+      const leads = (state.prospects || []).filter((p) => (p.campaignId || null) === c.id);
+      return { campaign: c, f: funnelFor(leads, rangeMs) };
+    })
+    // 询盘是北极星，其次看回复；两个都为 0 的活动排最后但仍然显示，
+    // 「跑了没出货」本身就是要看见的信息
+    .sort((a, b) => b.f.inquiry - a.f.inquiry || b.f.replied - a.f.replied || b.f.total - a.f.total);
+
+  // 汇总不是把各活动的比率平均——那会让只发了 2 封的小活动和发了 200 封的
+  // 大活动等权。分子分母各自相加，再算总比率。
+  const sum = rows.reduce(
+    (acc, r) => {
+      Object.keys(acc).forEach((k) => {
+        acc[k] += r.f[k];
+      });
+      return acc;
+    },
+    { total: 0, contactable: 0, reached: 0, delivered: 0, opened: 0, replied: 0, inquiry: 0 }
+  );
+
+  const orphan = (state.prospects || []).filter(
+    (p) => p.campaignId && !campaigns.some((c) => c.id === p.campaignId)
+  ).length;
+
+  const cell = (v) => `<span>${v}</span>`;
+  const body = rows
+    .map(({ campaign, f }) => {
+      const live = campaign.id === state.activeCampaignId;
+      return `
+        <div class="management-row overview-row ${live ? "is-selected" : ""}">
+          <button class="campaign-open" data-campaign-id="${campaign.id}" type="button" title="切换到该活动">
+            <span class="company-name">${escapeHtml(campaign.name)} ${live ? '<span class="tag tag-live">当前</span>' : ""}</span>
+            <span class="company-meta">${escapeHtml(campaign.markets || "未填市场")}</span>
+          </button>
+          ${cell(f.total)}${cell(f.reached)}${cell(f.replied)}
+          ${cell(`${pct(f.replied, f.reached)}%`)}
+          <span class="overview-star">${f.inquiry}</span>
+        </div>`;
+    })
+    .join("");
+
+  host.innerHTML = `
+    <div class="management-row header overview-head">
+      <span>活动</span><span>线索</span><span>已触达</span><span>回复</span><span>回复率</span><span>询盘</span>
+    </div>
+    ${body || `<div class="empty-state">还没有活动</div>`}
+    <div class="management-row overview-row is-total">
+      <span class="company-name">合计 · ${campaigns.length} 个活动 · ${rangeLabel}</span>
+      ${cell(sum.total)}${cell(sum.reached)}${cell(sum.replied)}
+      ${cell(`${pct(sum.replied, sum.reached)}%`)}
+      <span class="overview-star">${sum.inquiry}</span>
+    </div>
+    <p class="scope-note">
+      口径与分析页完全一致（同一个 funnelFor），区别只是这里把所有活动加在一起。
+      合计的回复率是分子分母各自相加后再算的，不是各活动比率的平均——否则只发过
+      两封的小活动会和发过两百封的大活动等权。
+      ${orphan ? `另有 ${orphan} 条线索属于已删除的活动，不计入本表。` : ""}
+    </p>`;
+}
+
 function renderManagement() {
   refreshManagementDerivedData();
   renderManagementKpis();
+  renderCampaignOverview();
   renderCampaignManager();
   renderJobBoard();
   renderApprovalCenter();
