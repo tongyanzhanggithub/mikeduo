@@ -12,7 +12,7 @@
     "dist": "npm run build && electron-builder --win",
     "build": "node build.mjs",
     "icon": "node tools/make-icon.mjs",
-    "test": "node tools/test-send-guard.mjs && node tools/test-license.mjs",
+    "test": "node tools/test-send-guard.mjs && node tools/test-license.mjs && node tools/test-netprobe.mjs && node tools/test-update-gate.mjs",
     "test:desktop": "electron tools/test-desktop.js && electron tools/test-mail.js && electron tools/test-customs.js",
     "gen-key": "node tools/gen-key.mjs"
   },

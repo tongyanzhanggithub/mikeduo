@@ -12,6 +12,7 @@ const license = require("./electron/license");
 const mailer = require("./electron/mailer");
 const customs = require("./electron/customs");
 const netprobe = require("./electron/netprobe");
+const updateFeed = require("./electron/update-feed");
 
 const APP_NAME = "觅客舵";
 const SALES_URL = "https://example.com/mikeduo"; // 销售页：发货前替换为真实地址
@@ -426,6 +427,8 @@ function registerIpc() {
     if (status.activated && status.updateExpired) {
       return { ok: false, expired: true, updateUntil: status.updateUntil };
     }
+    // 发布仓库还没配好就一次请求都不发——理由见 electron/update-feed.js
+    if (!updateFeed.updateFeedReady(process.resourcesPath)) return { ok: false, reason: "更新源未配置" };
     try {
       const { autoUpdater } = require("electron-updater");
       autoUpdater.autoDownload = true;
