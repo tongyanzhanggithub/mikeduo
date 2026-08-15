@@ -1195,9 +1195,19 @@ body.dark .overview-star {
   cursor: not-allowed;
 }
 
-.tag-live {
+/* 写成 .tag.tag-live 而不是 .tag-live：文件末尾改版区的那条 `.tag {}` 同权重
+   且排在后面，会把这里的绿色整个盖掉，「当前」徽章渲染成和普通标签一样的灰色
+   ——而它是活动总览里唯一一处"你正在看哪个活动"的指示。深色下还要再越过
+   body.dark .tag（0,2,0），所以那条得写到 0,3,0。 */
+.tag.tag-live {
   background: #dcfce7;
-  color: var(--green);
+  /* --green 配这个底是 4.25，差一点点到 AA（徽章是 11px 粗体，不吃"大字"的 3.0） */
+  color: #0f6b4c;
+}
+
+body.dark .tag.tag-live {
+  background: rgba(34, 197, 94, 0.18);
+  color: #7ee2a8;
 }
 
 .badge-alert {
@@ -2065,6 +2075,55 @@ button.approval-card:hover {
 
 .market-row {
   grid-template-columns: minmax(0, 1.3fr) repeat(3, 52px) 64px;
+}
+
+/* 获客来源效果：比市场表现多一列（线索数），且搜索式字符串很长，
+   标签列要明显更宽，其余数字列保持和市场表现一致的窄列。 */
+.effect-row {
+  grid-template-columns: minmax(0, 2.4fr) 52px 52px 52px 68px 52px;
+}
+
+.effect-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.effect-label .tag {
+  flex: none;
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+/* 三段选择器不是洁癖：文件末尾的改版区里有一条 `.tag { background/color }`
+   （还有 body.dark 下的同名规则），它们排在这里之后，同权重下后来者胜，
+   把 .tag-dead 的红色整个盖掉——量出来对比度只有 1.04，等于隐形。
+   压到 0,3,0 才能同时越过这两条。 */
+/* 颜色不直接用 --red：那一对在这个小徽章上量出来是 4.45（浅）/ 4.05（深），
+   而 11px 粗体不够 AA 的"大字"门槛，仍要 4.5。各压深/提亮一档补上。 */
+.effect-label .tag.tag-dead {
+  background: var(--danger-soft);
+  color: #a3342a;
+}
+
+body.dark .effect-label .tag.tag-dead {
+  background: rgba(228, 106, 96, 0.2);
+  color: #f4a49b;
+}
+
+.effect-dead {
+  color: var(--red);
+  font-weight: 850;
+}
+
+.effect-thin {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .market-row.header,

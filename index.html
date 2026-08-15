@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>觅客舵 · 本地 AI 获客工作台</title>
-    <link rel="icon" type="image/png" href="./favicon.png?v=e96b3635" />
-    <link rel="stylesheet" href="./styles.css?v=e96b3635" />
+    <link rel="icon" type="image/png" href="./favicon.png?v=2776cdd5" />
+    <link rel="stylesheet" href="./styles.css?v=2776cdd5" />
   </head>
   <body>
     <svg class="icon-sprite" aria-hidden="true">
@@ -1035,6 +1035,17 @@
               <div class="relay-impact" id="relayImpact"></div>
             </section>
 
+            <section class="panel wide-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Source effectiveness</p>
+                  <h2>获客来源效果（哪条搜索式在白跑）</h2>
+                </div>
+              </div>
+              <p class="connector-hint">每条线索都记着它是从哪条搜索式、哪个渠道来的。这里把它和「后来回没回信」对起来，让你知道八条搜索式里哪几条该换掉。被两条以上线索共用的才单独算一条搜索式，其余按渠道归并。</p>
+              <div class="market-table" id="sourceEffect"></div>
+            </section>
+
             <section class="panel">
               <div class="panel-heading">
                 <div>
@@ -1599,11 +1610,11 @@
 
     <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
-    <script src="./app.js?v=e96b3635" defer></script>
+    <script src="./app.js?v=2776cdd5" defer></script>
     <script>
       // 缓存哨兵：若浏览器仍加载旧版 app.js（版本不匹配或加载失败导致按钮失灵），给出明确提示
       window.addEventListener("load", () => {
-        if (window.__APP_V !== "e96b3635") {
+        if (window.__APP_V !== "2776cdd5") {
           const tip = document.createElement("div");
           tip.style.cssText =
             "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 16px;background:#c2410c;color:#fff;font-size:14px;text-align:center;font-weight:700;";

@@ -171,6 +171,7 @@ function renderAnalytics() {
   renderAnalyticsKpis(funnel);
   renderAnalyticsFunnel(funnel);
   renderChannelCompare();
+  renderSourceEffect();
   renderRelayImpact();
   renderMarketPerformance();
   renderTemplateRank();
@@ -408,6 +409,92 @@ function renderChannelCompare() {
       `;
     })
     .join("");
+}
+
+/* ---------- 获客来源效果：哪条搜索式在白跑 ----------
+
+   每条线索身上一直记着它是从哪儿来的（searchQuery / source），但从来没人
+   把它和"后来回没回信"对起来。于是用户永远不知道八条搜索式里哪两条在白跑，
+   只能凭感觉继续全跑一遍。这一屏就是把这两头接上。
+
+   全部本地计算，不花一分钱接口费——数据早就在那儿了。 */
+
+// 触达数低于这个不给回复率：冷开发信的回复率本来就是个位数，
+// 发了 5 封没人回是完全正常的噪音，报一个「0%」只会误导用户砍掉好渠道。
+const EFFECT_MIN_SAMPLE = 10;
+// 到这个量还挂零，才值得说一句"这条该换了"
+const EFFECT_DEAD_SAMPLE = 20;
+
+function sourceEffectRows(prospects, rangeMs) {
+  /* searchQuery 这个字段在不同来源下含义并不一样：
+       SerpAPI / 搜索式导入 —— 存的是真正的搜索表达式，多条线索共用一条
+       Claude 联网 / 粘贴导入 —— 存的是"这条线索为什么疑似客户"，每条都不同
+     后者按原样分组会退化成"一行一条线索"，没有任何统计意义。
+     所以只有被两条以上线索共用的字符串才当搜索式单独成行，其余按来源渠道归并。 */
+  const shared = new Map();
+  prospects.forEach((p) => {
+    const q = (p.searchQuery || "").trim();
+    if (q) shared.set(q, (shared.get(q) || 0) + 1);
+  });
+
+  const groups = new Map();
+  prospects.forEach((p) => {
+    const q = (p.searchQuery || "").trim();
+    const isQuery = !!q && shared.get(q) >= 2;
+    const label = isQuery ? q : p.source || "未标来源";
+    const key = `${isQuery ? "q" : "c"}:${label}`;
+    if (!groups.has(key)) groups.set(key, { kind: isQuery ? "query" : "channel", label, items: [] });
+    groups.get(key).items.push(p);
+  });
+
+  return [...groups.values()]
+    .map((g) => ({ kind: g.kind, label: g.label, f: funnelFor(g.items, rangeMs) }))
+    .sort((a, b) => b.f.replied - a.f.replied || b.f.reached - a.f.reached || b.f.total - a.f.total);
+}
+
+function renderSourceEffect() {
+  const host = elements.sourceEffect;
+  if (!host) return;
+
+  const rows = sourceEffectRows(activeProspects(), analyticsRangeMs());
+  if (!rows.length) {
+    host.innerHTML = `<div class="empty-state">还没有线索——先去「获客」跑一轮搜索或粘贴导入</div>`;
+    return;
+  }
+
+  const body = rows
+    .map((r) => {
+      const { reached, replied, total, inquiry } = r.f;
+      const enough = reached >= EFFECT_MIN_SAMPLE;
+      const dead = reached >= EFFECT_DEAD_SAMPLE && replied === 0;
+      // 比率一律包在 span 里：.market-row 的右对齐规则只认 span，
+      // 裸 <strong> 会在这一列里左飘，跟上下行对不齐。
+      const rate = enough
+        ? `<span class="${dead ? "effect-dead" : ""}">${pct(replied, reached)}%</span>`
+        : `<span class="effect-thin" title="触达不足 ${EFFECT_MIN_SAMPLE} 条，样本太小，算出来的回复率没有参考价值">样本不足</span>`;
+      return `
+        <div class="market-row effect-row">
+          <span class="effect-label" title="${escapeHtml(r.label)}">
+            <span class="tag">${r.kind === "query" ? "搜索式" : "渠道"}</span>
+            ${escapeHtml(r.label.length > 64 ? `${r.label.slice(0, 64)}…` : r.label)}
+            ${dead ? '<span class="tag tag-dead">白跑</span>' : ""}
+          </span>
+          <span>${total}</span><span>${reached}</span><span>${replied}</span>${rate}<span>${inquiry}</span>
+        </div>`;
+    })
+    .join("");
+
+  const deadCount = rows.filter((r) => r.f.reached >= EFFECT_DEAD_SAMPLE && r.f.replied === 0).length;
+  host.innerHTML = `
+    <div class="market-row effect-row header">
+      <span>来源 / 搜索式</span><span>线索</span><span>触达</span><span>回复</span><span>回复率</span><span>询盘</span>
+    </div>
+    ${body}
+    <p class="connector-hint">${
+      deadCount
+        ? `有 <strong>${deadCount}</strong> 条已经触达 ${EFFECT_DEAD_SAMPLE} 家以上、一个回复都没有——这些位置可以腾出来换别的搜索式或渠道。`
+        : `触达满 ${EFFECT_MIN_SAMPLE} 家才给回复率：冷开发信的回复率本来就是个位数，样本太小时的「0%」是噪音不是信号。`
+    }</p>`;
 }
 
 function renderRelayImpact() {

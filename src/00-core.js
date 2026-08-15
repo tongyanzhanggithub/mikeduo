@@ -290,6 +290,7 @@ const elements = {
   channelCompare: $("#channelCompare"),
   relayImpact: $("#relayImpact"),
   marketPerformance: $("#marketPerformance"),
+  sourceEffect: $("#sourceEffect"),
   templateRank: $("#templateRank"),
   simulateCallbacks: $("#simulateCallbacks"),
   exportAnalytics: $("#exportAnalytics"),
