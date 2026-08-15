@@ -404,14 +404,18 @@ function pageTextForAI(html, baseUrl) {
   try {
     doc = new DOMParser().parseFromString(String(html || ""), "text/html");
   } catch {
-    return { text: "", links: [] };
+    return { text: "", links: [], internalLinks: [] };
   }
   doc.querySelectorAll("script, style, noscript, svg, iframe, template").forEach((n) => n.remove());
 
+  // 站外链接和站内链接各有各的用处：
+  //   links         —— 经销商反查要的，外链就是经销商自己的官网域名
+  //   internalLinks —— 深挖联系人要的，About / Team / Contact 都在站内
   const links = [];
+  const internalLinks = [];
   const seen = new Set();
+  const seenPath = new Set();
   doc.querySelectorAll("a[href]").forEach((a) => {
-    if (links.length >= 120) return;
     let u;
     try {
       u = new URL(a.getAttribute("href"), baseUrl);
@@ -420,12 +424,22 @@ function pageTextForAI(html, baseUrl) {
     }
     if (u.protocol !== "http:" && u.protocol !== "https:") return;
     const h = u.hostname.replace(/^www\./, "");
-    // 站内链接是导航菜单，不是经销商；平台站/社媒/建站商同理
-    if (!h || h === host || h.endsWith(`.${host}`)) return;
-    if (NON_COMPANY_DOMAIN.test(h)) return;
+    if (!h) return;
+    const label = (a.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80);
+
+    if (h === host || h.endsWith(`.${host}`)) {
+      if (internalLinks.length >= 60) return;
+      u.hash = "";
+      if (seenPath.has(u.pathname)) return;
+      seenPath.add(u.pathname);
+      internalLinks.push({ url: u.toString(), path: u.pathname, label });
+      return;
+    }
+    if (links.length >= 120) return;
+    if (NON_COMPANY_DOMAIN.test(h)) return; // 平台站/社媒/建站商不是经销商
     if (seen.has(h)) return;
     seen.add(h);
-    links.push({ host: h, label: (a.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80) });
+    links.push({ host: h, label });
   });
 
   // textContent 不管元素边界，相邻块级元素的文字会直接粘在一起——
@@ -441,7 +455,7 @@ function pageTextForAI(html, baseUrl) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  return { text: text.slice(0, 12000), links };
+  return { text: text.slice(0, 12000), links, internalLinks };
 }
 
 // 抓一个页面并整理成模型能读的样子。桌面版专用（浏览器直开会被同源策略拦）。
@@ -458,6 +472,33 @@ async function fetchPageForAI(url) {
   }
   if (!res || !res.ok) return { ok: false, reason: res?.reason || "打不开" };
   return { ok: true, url: res.url || url, ...pageTextForAI(res.html || "", res.url || url) };
+}
+
+/* 公司官网上最可能写着采购决策人姓名和职位的页面。
+   带上主要外贸市场的本地写法——德语 impressum / 西语 nosotros / 法语 qui-sommes
+   这些在欧洲中小企业站上比英文 about 还常见，只认英文会大面积漏掉。 */
+const DEEP_PAGE_HINT =
+  /about|team|leadership|management|our-story|who-we-are|staff|people|company|contact|impressum|kontakt|ueber-uns|nosotros|empresa|equipo|contacto|qui-sommes|a-propos|chi-siamo|azienda|contatti|sobre|quem-somos/i;
+
+// 把一家公司的官网读成"几页文字"，交给任意模型去找决策人。
+// 先抓首页，再从首页的站内链接里挑出 About / Team / Contact 这类页继续抓。
+async function sitePagesForAI(website, maxPages = 4) {
+  const raw = String(website || "").trim();
+  if (!raw) return { ok: false, reason: "没有官网域名" };
+  const home = await fetchPageForAI(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  if (!home.ok) return home;
+
+  const pages = [{ url: home.url, text: home.text }];
+  const picked = (home.internalLinks || [])
+    .filter((l) => DEEP_PAGE_HINT.test(l.path) || DEEP_PAGE_HINT.test(l.label))
+    .slice(0, Math.max(0, maxPages - 1));
+
+  for (const l of picked) {
+    // eslint-disable-next-line no-await-in-loop
+    const p = await fetchPageForAI(l.url);
+    if (p.ok && p.text) pages.push({ url: p.url, text: p.text });
+  }
+  return { ok: true, pages };
 }
 
 /* ============================== 邮箱存在性验证 ============================== */

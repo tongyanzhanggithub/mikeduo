@@ -295,7 +295,8 @@ function openCampaignMenu() {
 // 来源徽章（B3）：真实验证绿描边 / AI 推测琥珀描边 / 规则推测灰描边。
 // 琥珀那档永远与"未验证不可发"成对出现，所以描边色和 ⛔ 徽章是同一套语义。
 function sourceBadge(source) {
-  const key = source === "webhook" ? "real" : source === "claude-web" ? "real" : source === "claude" ? "ai" : "rule";
+  // site-read 与 claude-web 同档：都是从真实网页文字里读出来的，且每个邮箱都留了出处
+  const key = source === "webhook" || isWebReadSource(source) ? "real" : source === "claude" ? "ai" : "rule";
   return `<span class="src-badge is-${key}">${escapeHtml(contactSourceLabel(source))}</span>`;
 }
 

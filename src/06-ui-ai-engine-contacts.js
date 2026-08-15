@@ -695,6 +695,17 @@ function highestRiskLevel(risks) {
 // 和五个猜的邮箱，是最伤信任的组合——用户会拿着这些东西去发真实客户。
 const FIT_OFF_TARGET = 40;
 
+/* 「模型是从真实网页文字里读出来的」这两个来源要一视同仁：
+     claude-web —— Claude 用服务端联网工具自己翻的
+     site-read  —— 我们把页面抓回本地，交给用户配的任意模型读的
+   它们共享同一条铁律：每个邮箱必须能溯源，拼出来的一律丢掉。
+   新增来源时如果漏了这里，那条路就会绕过反编造闸门，所以集中成一个判断。 */
+const WEB_READ_SOURCES = ["claude-web", "site-read"];
+
+function isWebReadSource(source) {
+  return WEB_READ_SOURCES.includes(source);
+}
+
 // 依赖姓名的邮箱模式。没拿到真名时这些地址的 firstname 全是编的，一条都不能留。
 const NAME_BASED_PATTERN = /first|last|name|initial|f\.?l|姓名/i;
 
@@ -725,9 +736,9 @@ function applyContact(prospectId, data, source) {
     const named = String(data.contact_name || "").trim();
     const candidates = (data.email_candidates || [])
       .filter((c) => c && c.email)
-      // 联网核实这条路只收「真的在网页上看到过」的地址：没标 verified、也没给出处的，
+      // 读网页这条路只收「真的在网页上看到过」的地址：没标 verified、也没给出处的，
       // 说明模型又在按域名拼——整条丢掉，宁可这条线索没有邮箱。
-      .filter((c) => source !== "claude-web" || /verified/i.test(c.pattern || "") || c.source_url)
+      .filter((c) => !isWebReadSource(source) || /verified/i.test(c.pattern || "") || c.source_url)
       // 没拿到真名时，依赖姓名的地址里 firstname 全是编的
       .filter((c) => named || !NAME_BASED_PATTERN.test(c.pattern || ""));
 
@@ -866,14 +877,10 @@ async function enrichContactAI(prospectId, quiet = false) {
   //    那条路产出的东西看起来很完整，但姓名是编的、邮箱是拼的，用户拿去发信
   //    既发错人又制造退信。已整条删除——联系人只允许有两个来源：
   //    真实源（Hunter / 邮箱查找 Webhook）与联网核实（真的翻官网看到）。
-  if (aiWebSearchCapable()) {
+  //    现在这条路不再只有 Claude 能走：桌面版把官网页面抓回本地，任意模型读就行。
+  if (aiEnabled()) {
     const dug = await deepDigContact(prospectId, quiet);
-    if (dug === "claude-web") return "claude-web";
-  } else if (aiEnabled() && !quiet) {
-    addLog(
-      `联网核实联系人目前只有 Claude 支持（当前是${aiProviderConf().label}）。${prospect.company} 的联系方式没有编造，仍是待查找——` +
-        `去「设置 → 数据源」配 Hunter，或把 AI 引擎切到 Claude。`
-    );
+    if (isWebReadSource(dug)) return dug;
   }
 
   // 3) 都没拿到：补上不需要编就成立的字段（岗位方向、采购信号），联系方式老实留空。
@@ -894,6 +901,8 @@ async function enrichContactAI(prospectId, quiet = false) {
 function contactSourceLabel(source) {
   return source === "webhook"
     ? "真实验证"
+    : source === "site-read"
+    ? "官网核实"
     : source === "claude-web"
     ? "联网核实"
     : source === "claude"
@@ -1301,54 +1310,114 @@ async function reverseCompetitorChannel(url) {
   return 0;
 }
 
-// 官网一键深挖联系人：Claude 联网翻公司官网 About/Team/Contact 页，找真实决策人与邮箱
+/* 官网一键深挖联系人：翻公司官网的 About / Team / Contact 页，找真实决策人与邮箱。
+
+   和竞品渠道反查同样的道理——这里要的是"读一个已知域名下的几个页面"，
+   不是"上网搜索"。桌面版自己把页面抓回来，模型只负责读，于是不再锁死在
+   Claude 上。抓不到时（浏览器直开 / 对方拦爬虫）才退回 Claude 的联网工具。
+
+   两条路产出的东西都必须能溯源：applyContact 对 site-read / claude-web
+   这两个来源额外要求每个邮箱带 source_url 或标 verified，拼出来的一律丢掉。 */
 async function deepDigContact(prospectId, quiet = false) {
   const prospect = state.prospects.find((p) => p.id === prospectId);
   if (!prospect) return "none";
-  if (!aiWebSearchCapable()) {
-    if (aiEnabled()) {
-      if (!quiet) addLog("「官网深挖联系人」需联网翻官网，目前仅 Claude 支持；可改用「AI 找联系人」（当前模型支持）或切到 Claude");
-      return "none";
-    }
-    if (!quiet) showAiSetup("官网深挖联系人需要先配置支持联网的 AI 引擎（Claude）：填入 API Key 后点「测试连接」");
+  if (!aiEnabled()) {
+    if (!quiet) showAiSetup("官网深挖联系人需要先配置 AI 引擎：填入 API Key 后点「测试连接」");
     return "none";
   }
-  if (!quiet) {
-    addLog(`Claude 正在联网深挖 ${prospect.company} 官网的采购决策人…`);
-    renderLogs();
+
+  const site = await sitePagesForAI(prospect.website, 4);
+  if (site.ok) {
+    if (!quiet) {
+      addLog(`${aiShortName()} 正在读 ${prospect.company} 官网的 ${site.pages.length} 个页面找采购决策人…`);
+      renderLogs();
+    }
+    const system = [
+      "你是外贸找客助手。我已经把这家公司官网的几个页面抓下来了，正文在下面。",
+      "任务：从这些页面文字里找出最对口的采购/进口决策人的真实姓名、职位、邮箱、电话。",
+      "只输出一个 JSON 对象，不要额外文字：{contact_name, contact_role, email_candidates:[{email,confidence,pattern,source_url}], phone, company_profile, fit_note, fit_score}。",
+      "硬规则：",
+      "① 只写你在下面这些页面文字里真实看到的内容。每个邮箱都要在 source_url 里写明是在哪一页看到的（用我给的页面地址原文），pattern 一律标 verified。",
+      "② 没找到就把 contact_name 留空、email_candidates 给空数组、phone 留空——严禁按域名拼 firstname.lastname 之类的地址，也严禁编造人名。",
+      "   拼出来的地址会被用户拿去发真实客户，退信会毁掉他的发信域名；留空是正确答案，猜不是。",
+      "③ 页面文字里没出现的邮箱，一个都不许写。",
+      "④ fit_score 必须诚实：招投标/采购公告平台、B2B 目录站、行业媒体、同行制造商、平台卖家都不是采购方，一律 30 以下并在 fit_note 说明。",
+      "⑤ fit_score 为 0-100 数字。"
+    ].join("\n");
+    const user = [
+      `公司: ${prospect.company}`,
+      `官网域名: ${prospect.website}`,
+      `市场: ${prospect.market}`,
+      `我方要开发的客户类型: ${state.campaign.customerType}`,
+      `我方产品: ${state.campaign.product}`,
+      ""
+    ]
+      .concat(site.pages.map((p) => `===== 页面: ${p.url} =====\n${p.text || "（正文为空）"}`))
+      .join("\n");
+    try {
+      const data = extractJsonObject(await callAI(system, user, null, 2500));
+      if (!data) {
+        if (!quiet) addLog(`官网深挖未拿到可解析结果：${prospect.company}`);
+        return "none";
+      }
+      applyContact(prospectId, data, "site-read");
+      if (!quiet) addLog(`官网深挖联系人（读了 ${site.pages.length} 个页面）：${prospect.company}`);
+      saveState();
+      render();
+      return "site-read";
+    } catch (error) {
+      if (!quiet) addLog(`官网深挖失败：${error.message}${aiTestFailHint(error)}`);
+      return "none";
+    }
   }
-  const system = [
-    "你是外贸找客助手，可联网搜索。任务：访问/搜索该公司官网，优先看 About / Team / Management / Contact / Wholesale 页面与领英，",
-    "找出最对口的采购/进口决策人的真实姓名、职位、邮箱、电话。",
-    "只输出一个 JSON 对象，不要额外文字：{contact_name, contact_role, email_candidates:[{email,confidence,pattern,source_url}], phone, company_profile, fit_note, fit_score}。",
-    "硬规则：",
-    "① 只写你在网页上真实看到的信息。每个邮箱都要在 source_url 里给出看到它的页面地址，pattern 一律标 verified。",
-    "② 没找到就把 contact_name 留空、email_candidates 给空数组、phone 留空——严禁按域名拼 firstname.lastname 之类的地址，也严禁编造人名。",
-    "   拼出来的地址会被用户拿去发真实客户，退信会毁掉他的发信域名；留空是正确答案，猜不是。",
-    "③ fit_score 必须诚实：招投标/采购公告平台、B2B 目录站、行业媒体、同行制造商、平台卖家都不是采购方，一律 30 以下并在 fit_note 说明。",
-    "④ fit_score 为 0-100 数字。"
-  ].join("\n");
-  const user = `公司: ${prospect.company}
+
+  // 本地抓不到，才动用 Claude 的服务端联网工具（它能绕过一部分反爬，也能搜领英）
+  if (aiWebSearchCapable()) {
+    if (!quiet) {
+      addLog(`本地抓不到 ${prospect.company} 的官网（${site.reason}），改用 Claude 联网深挖…`);
+      renderLogs();
+    }
+    const system = [
+      "你是外贸找客助手，可联网搜索。任务：访问/搜索该公司官网，优先看 About / Team / Management / Contact / Wholesale 页面与领英，",
+      "找出最对口的采购/进口决策人的真实姓名、职位、邮箱、电话。",
+      "只输出一个 JSON 对象，不要额外文字：{contact_name, contact_role, email_candidates:[{email,confidence,pattern,source_url}], phone, company_profile, fit_note, fit_score}。",
+      "硬规则：",
+      "① 只写你在网页上真实看到的信息。每个邮箱都要在 source_url 里给出看到它的页面地址，pattern 一律标 verified。",
+      "② 没找到就把 contact_name 留空、email_candidates 给空数组、phone 留空——严禁按域名拼 firstname.lastname 之类的地址，也严禁编造人名。",
+      "   拼出来的地址会被用户拿去发真实客户，退信会毁掉他的发信域名；留空是正确答案，猜不是。",
+      "③ fit_score 必须诚实：招投标/采购公告平台、B2B 目录站、行业媒体、同行制造商、平台卖家都不是采购方，一律 30 以下并在 fit_note 说明。",
+      "④ fit_score 为 0-100 数字。"
+    ].join("\n");
+    const user = `公司: ${prospect.company}
 官网域名: ${prospect.website || "（未知，请先联网找到官网）"}
 市场: ${prospect.market}
 我方要开发的客户类型: ${state.campaign.customerType}
 我方产品: ${state.campaign.product}`;
-  try {
-    const text = await callClaudeWebSearch(system, user, 2500);
-    const data = extractJsonObject(text);
-    if (!data) {
-      if (!quiet) addLog(`官网深挖未拿到可解析结果：${prospect.company}`);
+    try {
+      const data = extractJsonObject(await callClaudeWebSearch(system, user, 2500));
+      if (!data) {
+        if (!quiet) addLog(`官网深挖未拿到可解析结果：${prospect.company}`);
+        return "none";
+      }
+      applyContact(prospectId, data, "claude-web");
+      if (!quiet) addLog(`官网深挖联系人（联网核实）：${prospect.company}`);
+      saveState();
+      render();
+      return "claude-web";
+    } catch (error) {
+      if (!quiet) addLog(`官网深挖失败：${error.message}`);
       return "none";
     }
-    applyContact(prospectId, data, "claude-web");
-    if (!quiet) addLog(`官网深挖联系人（联网核实）：${prospect.company}`);
-    saveState();
-    render();
-    return "claude-web";
-  } catch (error) {
-    if (!quiet) addLog(`官网深挖失败：${error.message}`);
-    return "none";
   }
+
+  if (!quiet) {
+    addLog(
+      site.noBridge
+        ? `浏览器直开抓不了外站，${prospect.company} 的官网深挖要在桌面版用`
+        : `抓不到 ${prospect.company} 的官网（${site.reason}）——去「设置 → 数据源」配 Hunter 直连，或人工到官网 contact 页抄一个地址`
+    );
+  }
+  return "none";
 }
 
 // 一键批量补全：对所有缺联系方式/新线索依次跑「AI 找联系人」链路（真实源→Claude→本地）

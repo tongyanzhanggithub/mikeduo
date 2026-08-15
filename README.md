@@ -301,7 +301,7 @@ npm run icon               # 重新生成 icon.ico / icon.png / favicon.png
 
 直连与 Webhook **可以逐项混用**：发信收信走直连、找客户走 SerpAPI 直连、CRM 同步走 n8n，完全没问题。
 
-**AI 引擎**在「设置 → AI 引擎」里选：Claude / OpenAI / DeepSeek / 通义千问 / Kimi / 智谱 GLM，或填任意 OpenAI 兼容接口。意图识别、回复建议、深度写信由所选模型完成，未配置或调用失败自动降级本地规则。「联网找客户 / 竞品反查 / 官网深挖」依赖 Claude 内置联网搜索，其它模型下自动降级。
+**AI 引擎**在「设置 → AI 引擎」里选：Claude / OpenAI / DeepSeek / 通义千问 / Kimi / 智谱 GLM，或填任意 OpenAI 兼容接口。意图识别、回复建议、深度写信由所选模型完成，未配置或调用失败自动降级本地规则。「联网找客户」依赖 Claude 内置联网搜索（也可改配 SerpAPI 直连）；「竞品反查 / 官网深挖」只需读已知网址，桌面版自行抓页面后交任意模型解析，不限服务商。
 
 ## 激活体系怎么运转
 

@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>觅客舵 · 本地 AI 获客工作台</title>
-    <link rel="icon" type="image/png" href="./favicon.png?v=76f57d97" />
-    <link rel="stylesheet" href="./styles.css?v=76f57d97" />
+    <link rel="icon" type="image/png" href="./favicon.png?v=e96b3635" />
+    <link rel="stylesheet" href="./styles.css?v=e96b3635" />
   </head>
   <body>
     <svg class="icon-sprite" aria-hidden="true">
@@ -1477,7 +1477,7 @@
               </div>
               <p class="connector-hint">
                 云端大模型支持 Claude、ChatGPT 及国产大模型（DeepSeek / 通义千问 / Kimi / 智谱 GLM 等，走 OpenAI 兼容接口）。意图识别、回复建议、摘要、深度写信由所选模型完成；未配置或失败时自动降级本地规则。<br />
-                💡 省钱建议：日常跑量用 <b>DeepSeek</b>（同样量约 ¥14/月，是 Opus 的 1/20）；只在需要「联网找客户 / 官网深挖」时另挂一个 <b>Claude</b> Key 按次用。两者可随时切换、互不影响。
+                💡 省钱建议：日常跑量用 <b>DeepSeek</b>（同样量约 ¥14/月，是 Opus 的 1/20）。「竞品渠道反查 / 官网深挖联系人」现在任意模型都能用（桌面版自己抓页面）；只有「联网找客户」还需要 <b>Claude</b> 的联网搜索，可另挂一个 Key 按次用，或改配 SerpAPI 直连。
               </p>
             </section>
           </div>
@@ -1599,11 +1599,11 @@
 
     <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
-    <script src="./app.js?v=76f57d97" defer></script>
+    <script src="./app.js?v=e96b3635" defer></script>
     <script>
       // 缓存哨兵：若浏览器仍加载旧版 app.js（版本不匹配或加载失败导致按钮失灵），给出明确提示
       window.addEventListener("load", () => {
-        if (window.__APP_V !== "76f57d97") {
+        if (window.__APP_V !== "e96b3635") {
           const tip = document.createElement("div");
           tip.style.cssText =
             "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 16px;background:#c2410c;color:#fff;font-size:14px;text-align:center;font-weight:700;";
