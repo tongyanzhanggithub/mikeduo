@@ -291,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "acb5fe7a";
+window.__APP_V = "76f57d97";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -8960,37 +8960,90 @@ async function findLookalike(prospectId) {
   return admitted.length;
 }
 
-// 竞品渠道反查：从竞品 Where-to-buy / 经销商列表页抽出他家所有经销商作为线索
+/* 竞品渠道反查：从竞品 Where-to-buy / 经销商列表页抽出他家所有经销商作为线索。
+
+   这是全站信号最硬的免费通道——挂在竞品经销商页上的公司，是被这个品牌
+   认证过的、正在分销这个品类的渠道商，强度仅次于海关提单，而且每个市场
+   都能用、一分钱数据费都不花。
+
+   以前它写死了只能走 Claude 的服务端联网工具，于是用 DeepSeek 等其他模型的
+   用户根本用不了这条路。但这里要的只是"读一个已知网址"，不是"上网搜索"：
+   桌面版自己就能把页面抓回来，模型只需要读。现在默认走这条，任何模型都行。 */
 async function reverseCompetitorChannel(url) {
-  if (!url || !/^https?:\/\//i.test(url.trim())) {
+  const target = String(url || "").trim();
+  if (!/^https?:\/\//i.test(target)) {
     addLog("请先粘贴一个完整的竞品经销商/Where-to-buy 页面链接（http/https 开头）");
     return 0;
   }
-  if (!aiWebSearchCapable()) {
-    if (aiEnabled()) {
-      addLog("「竞品渠道反查」需联网抓取页面，目前仅 Claude 支持；请切到 Claude 或手动粘贴经销商列表");
+  if (!aiEnabled()) {
+    showAiSetup("竞品渠道反查需要先配置 AI 引擎：填入 API Key 后点「测试连接」");
+    return 0;
+  }
+  const markets = normalizeMarkets(state.campaign.markets);
+
+  const page = await fetchPageForAI(target);
+  if (page.ok) {
+    addLog(`${aiShortName()} 正在从页面里抽经销商：${target}…`);
+    renderLogs();
+    const system = [
+      "你是外贸找客助手。我已经把一个经销商定位/Where-to-buy/dealer locator/授权分销商页面抓下来了，",
+      "下面给你它的正文和页面上所有指向站外的链接。任务：抽出这个页面列出的所有经销商/分销商/零售商公司。",
+      "只输出一个 JSON 数组，不要额外文字，每个元素含 {company, website, market, note}：",
+      "  website 只要主域名（页面链接里给了就用，没给就留空，不要编）",
+      "  note 为一句中文，例如「X 品牌授权经销商」",
+      "硬规则：",
+      "① 只写页面上真实出现的公司。一家都没有就返回空数组 []，不要拿这个品牌的名气去编几家出来。",
+      "② 排除品牌方自己、平台站、社媒、目录站，以及建站商/物流商这类页脚里的无关链接。",
+      "③ 站外链接列表里那些明显是导航或赞助的（隐私政策、cookie 服务商等）不要当经销商。"
+    ].join("\n");
+    const user = [
+      `我方产品: ${state.campaign.product}`,
+      `目标市场: ${markets.join(", ") || "不限"}`,
+      `页面地址: ${page.url}`,
+      "",
+      "【页面上的站外链接】",
+      page.links.length ? page.links.map((l) => `${l.host}${l.label ? ` —— ${l.label}` : ""}`).join("\n") : "（没有站外链接）",
+      "",
+      "【页面正文】",
+      page.text || "（正文为空）"
+    ].join("\n");
+    try {
+      const n = ingestFoundText(await callAI(system, user, null, 8000), markets[0] || "United States", "竞品渠道反查");
+      if (n === 0) {
+        addLog("这个页面没抽到新经销商——常见原因是经销商藏在地图控件里由 JS 动态加载，抓回来的 HTML 是空壳。换一个纯列表式的页面（多数品牌有「Dealer List」或按国家分页的版本）再试。");
+      }
+      return n;
+    } catch (error) {
+      addLog(`竞品渠道反查失败：${error.message}${aiTestFailHint(error)}`);
       return 0;
     }
-    showAiSetup("竞品渠道反查需要先配置支持联网的 AI 引擎（Claude）：填入 API Key 后点「测试连接」");
-    return 0;
   }
-  addLog(`Claude 正在联网反查竞品经销商：${url.trim()}…`);
-  renderLogs();
-  const markets = normalizeMarkets(state.campaign.markets);
-  const system =
-    "你是外贸找客助手，可联网搜索。任务：打开给定的经销商定位/Where-to-buy/dealer locator/authorized distributor/stockist 页面，抽取该页面列出的所有经销商/分销商/零售商公司。只输出一个 JSON 数组，不要额外文字，每个元素含 {company, website, market, note}（note 为一句中文，如“X 品牌授权经销商”）。排除品牌方本身与平台/目录站。找不到页面就用网络搜索该品牌的经销商。";
-  const user = `竞品经销商页面: ${url.trim()}
+
+  // 抓不到页面（浏览器直开、或对方拦爬虫）时，才退回 Claude 的服务端联网工具
+  if (aiWebSearchCapable()) {
+    addLog(`本地抓不到这个页面（${page.reason}），改用 Claude 联网反查：${target}…`);
+    renderLogs();
+    const system =
+      "你是外贸找客助手，可联网搜索。任务：打开给定的经销商定位/Where-to-buy/dealer locator/authorized distributor/stockist 页面，抽取该页面列出的所有经销商/分销商/零售商公司。只输出一个 JSON 数组，不要额外文字，每个元素含 {company, website, market, note}（note 为一句中文，如“X 品牌授权经销商”）。排除品牌方本身与平台/目录站。找不到页面就用网络搜索该品牌的经销商。";
+    const user = `竞品经销商页面: ${target}
 我方产品: ${state.campaign.product}
 目标市场: ${markets.join(", ") || "不限"}`;
-  try {
-    const text = await callClaudeWebSearch(system, user, 8000);
-    const n = ingestFoundText(text, markets[0] || "United States", "竞品渠道反查");
-    if (n === 0) addLog("竞品反查未抽到新经销商（可能页面无列表或都已在库）");
-    return n;
-  } catch (error) {
-    addLog(`竞品渠道反查失败：${error.message}`);
-    return 0;
+    try {
+      const n = ingestFoundText(await callClaudeWebSearch(system, user, 8000), markets[0] || "United States", "竞品渠道反查");
+      if (n === 0) addLog("竞品反查未抽到新经销商（可能页面无列表或都已在库）");
+      return n;
+    } catch (error) {
+      addLog(`竞品渠道反查失败：${error.message}`);
+      return 0;
+    }
   }
+
+  addLog(
+    page.noBridge
+      ? "浏览器直开受同源策略限制，抓不了外站——这个功能要在桌面版用"
+      : `抓不到这个页面（${page.reason}）——对方站可能拦爬虫或要求登录。换一个能直接打开的纯列表式经销商页，或者把页面上的公司名手工粘到「粘贴导入」`
+  );
+  return 0;
 }
 
 // 官网一键深挖联系人：Claude 联网翻公司官网 About/Team/Contact 页，找真实决策人与邮箱
@@ -15999,6 +16052,91 @@ async function vetLeads(ids) {
       ? `入池体检完成：${targets.length} 家里拦下 ${parts.join("、")}，${kept} 家留在池子里。被拦的不进批量入队和自动驾驶，你不同意可在潜客详情里恢复。`
       : `入池体检完成：${targets.length} 家全部通过${canJudge ? "" : "（未配 AI 引擎，只做了官网核对）"}`
   );
+}
+
+/* ========================= 把网页读给任意模型听 =========================
+
+   有几个功能本来写死了只能用 Claude，因为它们要"打开一个网页"，而当时唯一
+   的办法是 Anthropic 的服务端联网工具。可桌面版自己就有抓取能力
+   （webSecurity:false，没有跨域限制）——页面我们自己取回来，正文交给用户
+   配的那家模型就行，模型只需要读，不需要会上网。
+
+   这样做还更准：模型拿到的是真实 HTML 里的 href，不是搜索摘要转述的内容。 */
+
+// 正文 + 站外链接。经销商页上那些指向外部的链接本身就是经销商的官网——
+// 只把标签剥了当纯文本，等于把最硬的那部分信息直接扔掉。
+//
+// 用 DOMParser 而不是正则剥标签：真实网页的 HTML 常常不规范（标签没闭合、
+// 属性值里带 > 和引号），正则一碰就散。DOMParser 解析出来的是一份「惰性文档」
+// ——不执行脚本、不加载图片、不发任何请求，只是把这段字符串按浏览器的容错
+// 规则解析成一棵树。顺带 &nbsp; &middot; 这些实体也由它按标准解码，
+// 不用自己维护一张实体表。
+function pageTextForAI(html, baseUrl) {
+  let host = "";
+  try {
+    host = new URL(baseUrl).hostname.replace(/^www\./, "");
+  } catch {
+    host = "";
+  }
+
+  let doc;
+  try {
+    doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+  } catch {
+    return { text: "", links: [] };
+  }
+  doc.querySelectorAll("script, style, noscript, svg, iframe, template").forEach((n) => n.remove());
+
+  const links = [];
+  const seen = new Set();
+  doc.querySelectorAll("a[href]").forEach((a) => {
+    if (links.length >= 120) return;
+    let u;
+    try {
+      u = new URL(a.getAttribute("href"), baseUrl);
+    } catch {
+      return;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return;
+    const h = u.hostname.replace(/^www\./, "");
+    // 站内链接是导航菜单，不是经销商；平台站/社媒/建站商同理
+    if (!h || h === host || h.endsWith(`.${host}`)) return;
+    if (NON_COMPANY_DOMAIN.test(h)) return;
+    if (seen.has(h)) return;
+    seen.add(h);
+    links.push({ host: h, label: (a.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80) });
+  });
+
+  // textContent 不管元素边界，相邻块级元素的文字会直接粘在一起——
+  // 「<h3>Nordwind Agrar GmbH</h3><p>Hamburg」会读成「Nordwind Agrar GmbHHamburg」，
+  // 模型据此抽出来的公司名就是错的。先给每个块级元素补一个换行再取文本。
+  doc.querySelectorAll("br, p, div, li, tr, td, th, section, article, h1, h2, h3, h4, h5, h6, a").forEach((el) => {
+    el.after(doc.createTextNode("\n"));
+  });
+
+  const text = (doc.body ? doc.body.textContent || "" : "")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { text: text.slice(0, 12000), links };
+}
+
+// 抓一个页面并整理成模型能读的样子。桌面版专用（浏览器直开会被同源策略拦）。
+async function fetchPageForAI(url) {
+  const b = mkdBridge();
+  // noBridge 要和"抓了但没抓着"分开：前者是"换桌面版就能用"，后者是对方站的问题，
+  // 给的建议完全不同。混成一句会让桌面版用户被告知去用桌面版。
+  if (!b || typeof b.fetchPage !== "function") return { ok: false, noBridge: true, reason: "浏览器直开抓不了外站" };
+  let res = null;
+  try {
+    res = await b.fetchPage(url);
+  } catch (error) {
+    return { ok: false, reason: error.message || "抓取失败" };
+  }
+  if (!res || !res.ok) return { ok: false, reason: res?.reason || "打不开" };
+  return { ok: true, url: res.url || url, ...pageTextForAI(res.html || "", res.url || url) };
 }
 
 /* ============================== 邮箱存在性验证 ============================== */

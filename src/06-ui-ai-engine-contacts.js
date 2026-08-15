@@ -1215,37 +1215,90 @@ async function findLookalike(prospectId) {
   return admitted.length;
 }
 
-// 竞品渠道反查：从竞品 Where-to-buy / 经销商列表页抽出他家所有经销商作为线索
+/* 竞品渠道反查：从竞品 Where-to-buy / 经销商列表页抽出他家所有经销商作为线索。
+
+   这是全站信号最硬的免费通道——挂在竞品经销商页上的公司，是被这个品牌
+   认证过的、正在分销这个品类的渠道商，强度仅次于海关提单，而且每个市场
+   都能用、一分钱数据费都不花。
+
+   以前它写死了只能走 Claude 的服务端联网工具，于是用 DeepSeek 等其他模型的
+   用户根本用不了这条路。但这里要的只是"读一个已知网址"，不是"上网搜索"：
+   桌面版自己就能把页面抓回来，模型只需要读。现在默认走这条，任何模型都行。 */
 async function reverseCompetitorChannel(url) {
-  if (!url || !/^https?:\/\//i.test(url.trim())) {
+  const target = String(url || "").trim();
+  if (!/^https?:\/\//i.test(target)) {
     addLog("请先粘贴一个完整的竞品经销商/Where-to-buy 页面链接（http/https 开头）");
     return 0;
   }
-  if (!aiWebSearchCapable()) {
-    if (aiEnabled()) {
-      addLog("「竞品渠道反查」需联网抓取页面，目前仅 Claude 支持；请切到 Claude 或手动粘贴经销商列表");
+  if (!aiEnabled()) {
+    showAiSetup("竞品渠道反查需要先配置 AI 引擎：填入 API Key 后点「测试连接」");
+    return 0;
+  }
+  const markets = normalizeMarkets(state.campaign.markets);
+
+  const page = await fetchPageForAI(target);
+  if (page.ok) {
+    addLog(`${aiShortName()} 正在从页面里抽经销商：${target}…`);
+    renderLogs();
+    const system = [
+      "你是外贸找客助手。我已经把一个经销商定位/Where-to-buy/dealer locator/授权分销商页面抓下来了，",
+      "下面给你它的正文和页面上所有指向站外的链接。任务：抽出这个页面列出的所有经销商/分销商/零售商公司。",
+      "只输出一个 JSON 数组，不要额外文字，每个元素含 {company, website, market, note}：",
+      "  website 只要主域名（页面链接里给了就用，没给就留空，不要编）",
+      "  note 为一句中文，例如「X 品牌授权经销商」",
+      "硬规则：",
+      "① 只写页面上真实出现的公司。一家都没有就返回空数组 []，不要拿这个品牌的名气去编几家出来。",
+      "② 排除品牌方自己、平台站、社媒、目录站，以及建站商/物流商这类页脚里的无关链接。",
+      "③ 站外链接列表里那些明显是导航或赞助的（隐私政策、cookie 服务商等）不要当经销商。"
+    ].join("\n");
+    const user = [
+      `我方产品: ${state.campaign.product}`,
+      `目标市场: ${markets.join(", ") || "不限"}`,
+      `页面地址: ${page.url}`,
+      "",
+      "【页面上的站外链接】",
+      page.links.length ? page.links.map((l) => `${l.host}${l.label ? ` —— ${l.label}` : ""}`).join("\n") : "（没有站外链接）",
+      "",
+      "【页面正文】",
+      page.text || "（正文为空）"
+    ].join("\n");
+    try {
+      const n = ingestFoundText(await callAI(system, user, null, 8000), markets[0] || "United States", "竞品渠道反查");
+      if (n === 0) {
+        addLog("这个页面没抽到新经销商——常见原因是经销商藏在地图控件里由 JS 动态加载，抓回来的 HTML 是空壳。换一个纯列表式的页面（多数品牌有「Dealer List」或按国家分页的版本）再试。");
+      }
+      return n;
+    } catch (error) {
+      addLog(`竞品渠道反查失败：${error.message}${aiTestFailHint(error)}`);
       return 0;
     }
-    showAiSetup("竞品渠道反查需要先配置支持联网的 AI 引擎（Claude）：填入 API Key 后点「测试连接」");
-    return 0;
   }
-  addLog(`Claude 正在联网反查竞品经销商：${url.trim()}…`);
-  renderLogs();
-  const markets = normalizeMarkets(state.campaign.markets);
-  const system =
-    "你是外贸找客助手，可联网搜索。任务：打开给定的经销商定位/Where-to-buy/dealer locator/authorized distributor/stockist 页面，抽取该页面列出的所有经销商/分销商/零售商公司。只输出一个 JSON 数组，不要额外文字，每个元素含 {company, website, market, note}（note 为一句中文，如“X 品牌授权经销商”）。排除品牌方本身与平台/目录站。找不到页面就用网络搜索该品牌的经销商。";
-  const user = `竞品经销商页面: ${url.trim()}
+
+  // 抓不到页面（浏览器直开、或对方拦爬虫）时，才退回 Claude 的服务端联网工具
+  if (aiWebSearchCapable()) {
+    addLog(`本地抓不到这个页面（${page.reason}），改用 Claude 联网反查：${target}…`);
+    renderLogs();
+    const system =
+      "你是外贸找客助手，可联网搜索。任务：打开给定的经销商定位/Where-to-buy/dealer locator/authorized distributor/stockist 页面，抽取该页面列出的所有经销商/分销商/零售商公司。只输出一个 JSON 数组，不要额外文字，每个元素含 {company, website, market, note}（note 为一句中文，如“X 品牌授权经销商”）。排除品牌方本身与平台/目录站。找不到页面就用网络搜索该品牌的经销商。";
+    const user = `竞品经销商页面: ${target}
 我方产品: ${state.campaign.product}
 目标市场: ${markets.join(", ") || "不限"}`;
-  try {
-    const text = await callClaudeWebSearch(system, user, 8000);
-    const n = ingestFoundText(text, markets[0] || "United States", "竞品渠道反查");
-    if (n === 0) addLog("竞品反查未抽到新经销商（可能页面无列表或都已在库）");
-    return n;
-  } catch (error) {
-    addLog(`竞品渠道反查失败：${error.message}`);
-    return 0;
+    try {
+      const n = ingestFoundText(await callClaudeWebSearch(system, user, 8000), markets[0] || "United States", "竞品渠道反查");
+      if (n === 0) addLog("竞品反查未抽到新经销商（可能页面无列表或都已在库）");
+      return n;
+    } catch (error) {
+      addLog(`竞品渠道反查失败：${error.message}`);
+      return 0;
+    }
   }
+
+  addLog(
+    page.noBridge
+      ? "浏览器直开受同源策略限制，抓不了外站——这个功能要在桌面版用"
+      : `抓不到这个页面（${page.reason}）——对方站可能拦爬虫或要求登录。换一个能直接打开的纯列表式经销商页，或者把页面上的公司名手工粘到「粘贴导入」`
+  );
+  return 0;
 }
 
 // 官网一键深挖联系人：Claude 联网翻公司官网 About/Team/Contact 页，找真实决策人与邮箱

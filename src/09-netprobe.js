@@ -375,6 +375,91 @@ async function vetLeads(ids) {
   );
 }
 
+/* ========================= 把网页读给任意模型听 =========================
+
+   有几个功能本来写死了只能用 Claude，因为它们要"打开一个网页"，而当时唯一
+   的办法是 Anthropic 的服务端联网工具。可桌面版自己就有抓取能力
+   （webSecurity:false，没有跨域限制）——页面我们自己取回来，正文交给用户
+   配的那家模型就行，模型只需要读，不需要会上网。
+
+   这样做还更准：模型拿到的是真实 HTML 里的 href，不是搜索摘要转述的内容。 */
+
+// 正文 + 站外链接。经销商页上那些指向外部的链接本身就是经销商的官网——
+// 只把标签剥了当纯文本，等于把最硬的那部分信息直接扔掉。
+//
+// 用 DOMParser 而不是正则剥标签：真实网页的 HTML 常常不规范（标签没闭合、
+// 属性值里带 > 和引号），正则一碰就散。DOMParser 解析出来的是一份「惰性文档」
+// ——不执行脚本、不加载图片、不发任何请求，只是把这段字符串按浏览器的容错
+// 规则解析成一棵树。顺带 &nbsp; &middot; 这些实体也由它按标准解码，
+// 不用自己维护一张实体表。
+function pageTextForAI(html, baseUrl) {
+  let host = "";
+  try {
+    host = new URL(baseUrl).hostname.replace(/^www\./, "");
+  } catch {
+    host = "";
+  }
+
+  let doc;
+  try {
+    doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+  } catch {
+    return { text: "", links: [] };
+  }
+  doc.querySelectorAll("script, style, noscript, svg, iframe, template").forEach((n) => n.remove());
+
+  const links = [];
+  const seen = new Set();
+  doc.querySelectorAll("a[href]").forEach((a) => {
+    if (links.length >= 120) return;
+    let u;
+    try {
+      u = new URL(a.getAttribute("href"), baseUrl);
+    } catch {
+      return;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return;
+    const h = u.hostname.replace(/^www\./, "");
+    // 站内链接是导航菜单，不是经销商；平台站/社媒/建站商同理
+    if (!h || h === host || h.endsWith(`.${host}`)) return;
+    if (NON_COMPANY_DOMAIN.test(h)) return;
+    if (seen.has(h)) return;
+    seen.add(h);
+    links.push({ host: h, label: (a.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80) });
+  });
+
+  // textContent 不管元素边界，相邻块级元素的文字会直接粘在一起——
+  // 「<h3>Nordwind Agrar GmbH</h3><p>Hamburg」会读成「Nordwind Agrar GmbHHamburg」，
+  // 模型据此抽出来的公司名就是错的。先给每个块级元素补一个换行再取文本。
+  doc.querySelectorAll("br, p, div, li, tr, td, th, section, article, h1, h2, h3, h4, h5, h6, a").forEach((el) => {
+    el.after(doc.createTextNode("\n"));
+  });
+
+  const text = (doc.body ? doc.body.textContent || "" : "")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { text: text.slice(0, 12000), links };
+}
+
+// 抓一个页面并整理成模型能读的样子。桌面版专用（浏览器直开会被同源策略拦）。
+async function fetchPageForAI(url) {
+  const b = mkdBridge();
+  // noBridge 要和"抓了但没抓着"分开：前者是"换桌面版就能用"，后者是对方站的问题，
+  // 给的建议完全不同。混成一句会让桌面版用户被告知去用桌面版。
+  if (!b || typeof b.fetchPage !== "function") return { ok: false, noBridge: true, reason: "浏览器直开抓不了外站" };
+  let res = null;
+  try {
+    res = await b.fetchPage(url);
+  } catch (error) {
+    return { ok: false, reason: error.message || "抓取失败" };
+  }
+  if (!res || !res.ok) return { ok: false, reason: res?.reason || "打不开" };
+  return { ok: true, url: res.url || url, ...pageTextForAI(res.html || "", res.url || url) };
+}
+
 /* ============================== 邮箱存在性验证 ============================== */
 
 const PROBE_STATUS_TEXT = {
