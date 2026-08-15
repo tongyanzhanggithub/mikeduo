@@ -1170,7 +1170,10 @@ function generateProspects(campaign, targetCount = 18, salt = "") {
         campaignId: state.activeCampaignId || null,
         buyingSignal: `${market} 市场存在 ${campaign.product} 采购或分销线索`,
         companySize: ["11-50", "51-200", "201-500", "500+"][index % 4],
-        searchQuery: query
+        searchQuery: query,
+        // 这批公司名和域名都是拼出来的，不存在。打上标记，让入池体检跳过它们——
+        // 否则一次演示采集会对着十几个根本不存在的域名发请求，然后把它们全判成死站。
+        simulated: true
       });
     }
   });

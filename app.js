@@ -105,6 +105,11 @@ function admitProspects(list, sourceLabel = "") {
     if (p && !p.createdAt) p.createdAt = new Date(now + i).toISOString();
   });
 
+  // 入池体检：抓官网核实这家公司真实存在，并批量判一次对不对口。
+  // 放在这个唯一闸门上，三条入池路径（联网搜索 / 直连 SerpAPI / 粘贴导入）
+  // 一次覆盖。实现在 09-netprobe.js，浏览器直开时不存在，所以要判一下。
+  if (typeof queueVet === "function") queueVet(incoming.map((p) => p && p.id));
+
   if (!isTrial()) return incoming;
 
   const used = typeof state === "undefined" ? 0 : (state.prospects || []).length;
@@ -286,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "93dea40c";
+window.__APP_V = "acb5fe7a";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -5353,7 +5358,10 @@ function generateProspects(campaign, targetCount = 18, salt = "") {
         campaignId: state.activeCampaignId || null,
         buyingSignal: `${market} 市场存在 ${campaign.product} 采购或分销线索`,
         companySize: ["11-50", "51-200", "201-500", "500+"][index % 4],
-        searchQuery: query
+        searchQuery: query,
+        // 这批公司名和域名都是拼出来的，不存在。打上标记，让入池体检跳过它们——
+        // 否则一次演示采集会对着十几个根本不存在的域名发请求，然后把它们全判成死站。
+        simulated: true
       });
     }
   });
@@ -14266,7 +14274,12 @@ function pendingVerifyCount() {
 // 潜客列表里的一枚小徽章：这条现在能不能发出去（状态即信息）
 function verifyPill(prospect) {
   // 不对口优先于一切：这条线索根本不该发，验证状态是多余信息
-  if (prospect?.offTarget) return `<span class="mkd-verify-badge is-offtarget">AI 判定不对口</span>`;
+  if (prospect?.offTarget) {
+    // 域名压根解析不到是「事实」，不是 AI 的判断。两者混着说会让用户
+    // 以为可以推翻它——而假域名是推翻不了的，往那儿发信只会退信。
+    const label = prospect.offTargetReason === "dead" ? "官网不存在" : "AI 判定不对口";
+    return `<span class="mkd-verify-badge is-offtarget">${label}</span>`;
+  }
   if (!prospect?.email) return `<span class="mkd-verify-badge is-guessed">缺邮箱</span>`;
   const key = emailVerificationState(prospect, prospect.email);
   if (key === "verified") return `<span class="mkd-verify-badge is-verified">✓ 已验证</span>`;
@@ -14278,10 +14291,19 @@ function verifyPill(prospect) {
 function renderSendEligibility(prospect) {
   // AI 说不对口就把话说完：为什么不对口、建议怎么处理，而不是继续展示一堆猜的联系方式
   if (prospect?.offTarget) {
+    const dead = prospect.offTargetReason === "dead";
     return `<div class="offtarget-callout">
-        <strong>⛔ AI 判定这家不对口${typeof prospect.fitScore === "number" ? `（匹配度 ${prospect.fitScore}%）` : ""}</strong>
+        <strong>⛔ ${
+          dead
+            ? "这家公司的官网不存在"
+            : `AI 判定这家不对口${typeof prospect.fitScore === "number" ? `（匹配度 ${prospect.fitScore}%）` : ""}`
+        }</strong>
         <p>${escapeHtml(prospect.fitNote || "不是采购/进口/分销我方产品的角色")}</p>
-        <p class="mkd-hint">所以没有为它推测联系人和邮箱——在"完全不对口"旁边摆一个编出来的人名，只会害你发错人。批量入队和自动驾驶都会跳过它。</p>
+        <p class="mkd-hint">${
+          dead
+            ? "域名解析不到，说明这个网址是搜索结果或 AI 给出的假地址。往这种域名发信必退，退信多了会连累你自己的发信域名。批量入队和自动驾驶都会跳过它。"
+            : '所以没有为它推测联系人和邮箱——在"完全不对口"旁边摆一个编出来的人名，只会害你发错人。批量入队和自动驾驶都会跳过它。'
+        }</p>
         <div class="ot-actions">
           <button class="ghost-button danger-button" data-mkd-drop="${prospect.id}" type="button"><span>移出线索池</span></button>
           <button class="ghost-button" data-mkd-keep="${prospect.id}" type="button"><span>我确认对口，恢复</span></button>
@@ -15285,6 +15307,9 @@ document.addEventListener(
       const p = state.prospects.find((x) => x.id === keep.dataset.mkdKeep);
       if (p) {
         p.offTarget = false;
+        // 理由也要一起清掉，否则徽章会继续按 dead 显示「官网不存在」——
+        // 用户明明已经手动推翻了这条判断。
+        p.offTargetReason = "";
         if (p.status === "不对口") p.status = "已丰富";
         addLog(`已恢复 ${p.company}：按你的判断当对口客户处理（联系方式仍要补全并验证才能发信）`);
         saveState();
@@ -15747,6 +15772,233 @@ async function batchHarvestSites(ids) {
     hit ? "全部来自企业官网公示，可点开出处核对" : "这批公司官网上既没有公示邮箱，也没有号码"
   );
   addLog(`官网抓取完成：${targets.length} 家里拿到 ${hit} 家真实联系方式（邮箱或 WhatsApp 号，${rate}%），零编造`);
+}
+
+/* ================================ 入池体检 ================================
+
+   以前线索进池只过三道筛子：域名不是平台站、不在退订名单、没重复。
+   也就是说——市场研究报告站、同行工厂、行业媒体、招投标平台，跟真正的
+   进口商是以完全相同的身份进池的。
+
+   而唯一判断「这家到底买不买我的东西」的 fit_score，只在「官网深挖联系人」
+   里产生，那是一条线索一次联网调用。最贵的筛子装在了最后一环：等你花钱把
+   整池挖了一遍，才知道其中一半根本不是客户。
+
+   入池体检把这道筛子挪到入口，并且改成批量：
+
+     第一步  抓官网（免费、不要 key）。顺手把企业公示的邮箱和 WhatsApp 号
+             取回来，同时把它官网上的自述（标题/简介/小标题）留作判断材料。
+             域名解析不到的直接判死——搜索摘要和 AI 都会给出根本不存在的站。
+     第二步  一次 AI 调用判一批。依据是这家公司自己官网上写的话，而不是
+             Google 摘要里那一行。判不对口的走既有的 offTarget 通道，
+             自动被批量入队和自动驾驶跳过（见 isQualityQueueable）。
+
+   成本方向是反的：以前每条一次调用，现在每 VET_BATCH_SIZE 条一次。 */
+
+// 一次自动体检最多处理多少条。一次粘贴导入两百家时，不该让用户对着两百次
+// 官网抓取干等——超出的留给「批量抓官网」按钮手动补。
+const VET_MAX_PER_PASS = 60;
+// 一批塞多少家给 AI。太多会被 max_tokens 截断，太少就失去了批量的意义。
+const VET_BATCH_SIZE = 20;
+// 体检抓几页。比手动深挖的 4 页少：这一步要的是「这家干什么的」，
+// 首页加一个 contact 页就够，翻倍的页数换不来多少判断力。
+const VET_HARVEST_PAGES = 2;
+
+let vetPending = [];
+let vetRunning = false;
+
+function patchProspect(id, patch) {
+  state.prospects = state.prospects.map((p) => (p.id === id ? { ...p, ...patch } : p));
+}
+
+// 入池闸门的出口。同步返回：admitProspects 的调用方拿到返回值之后才会把线索
+// 塞进 state.prospects，所以真正的活儿必须推到下一个事件循环再干，
+// 否则这里按 id 一条都找不到。
+function queueVet(ids) {
+  const fresh = (ids || []).filter(Boolean);
+  if (!fresh.length) return;
+  const room = Math.max(0, VET_MAX_PER_PASS - vetPending.length);
+  if (fresh.length > room) {
+    addLog(`本批有 ${fresh.length - room} 条没做入池体检（一次最多自动检 ${VET_MAX_PER_PASS} 条）——想补检就点「批量抓官网」`);
+  }
+  vetPending.push(...fresh.slice(0, room));
+  if (vetRunning || !vetPending.length) return;
+  vetRunning = true;
+  setTimeout(() => {
+    runVetPass().finally(() => {
+      vetRunning = false;
+    });
+  }, 0);
+}
+
+// 排空队列。体检期间又有新线索入池（自动驾驶、周期补量）会被这个循环接住。
+async function runVetPass() {
+  while (vetPending.length) {
+    const ids = vetPending.splice(0, vetPending.length);
+    // eslint-disable-next-line no-await-in-loop
+    await vetLeads(ids);
+  }
+}
+
+// 第一步：抓一家的官网。返回 { dead, facts }
+async function vetHarvestOne(prospect) {
+  if (!prospect.website) return { dead: false, facts: [] };
+  let res = null;
+  try {
+    res = await window.mkd.siteHarvest(prospect.website, VET_HARVEST_PAGES);
+  } catch {
+    return { dead: false, facts: [] }; // 桥断了不算这个域名的错
+  }
+  const at = new Date().toISOString();
+
+  if (res && res.ok) {
+    applyHarvest(prospect.id, res); // 邮箱/WhatsApp 顺手就落了，不额外花钱
+    patchProspect(prospect.id, { siteChecked: at, siteNote: "" });
+    return { dead: false, facts: (res.facts || []).map((f) => f.text).filter(Boolean).slice(0, 6) };
+  }
+
+  // 只有「域名解析不到」才判死。超时、403、拦爬虫、证书问题都只说明这次没抓着；
+  // 据此把一家真公司踢出池子，代价比放进来一家假的大得多。
+  if (res && res.code === "ENOTFOUND") {
+    patchProspect(prospect.id, {
+      offTarget: true,
+      offTargetReason: "dead",
+      fitScore: 0,
+      fitNote: `官网 ${prospect.website} 解析不到，这个域名不存在`,
+      siteChecked: at,
+      status: ["已回复", "已入队"].includes(prospect.status) ? prospect.status : "不对口"
+    });
+    return { dead: true, facts: [] };
+  }
+
+  patchProspect(prospect.id, { siteChecked: at, siteNote: res?.reason || "打不开" });
+  return { dead: false, facts: [] };
+}
+
+// 第二步：一次 AI 调用判一批。返回判为不对口的条数。
+async function vetFitBatch(rows) {
+  const system = [
+    "你是外贸找客的入池审核员。给你一批候选公司，判断每一家是不是「会采购/进口/分销我方产品」的买家。",
+    "判断依据只能是我给你的官网自述（这家公司自己网站上的标题、简介、小标题）和搜索摘要。不要联网，不要凭公司名猜。",
+    "只输出一个 JSON 数组，不要额外文字。每个元素 {i, fit, why}：",
+    "  i   = 我给的编号（数字）",
+    "  fit = 0-100 的对口程度（数字）",
+    "  why = 一句中文理由，25 字以内",
+    "硬规则：",
+    "① 这些一律给 30 以下：B2B 平台与目录站、行业媒体与资讯站、市场研究报告站、招投标公告平台、",
+    "   同行制造商（跟我方做同样产品的工厂）、物流货代、展会主办方、政府与协会官网本身、求职招聘站。",
+    "② 官网自述里看不出跟这个品类有任何关系的，给 40 以下——别往好里猜。",
+    "③ 材料不足以判断的给 50，并在 why 里写明「资料不足」。不确定时不许给高分。"
+  ].join("\n");
+
+  const user = [
+    `我方产品：${state.campaign.product}`,
+    `我要找的客户类型：${state.campaign.customerType}`,
+    "",
+    "候选公司："
+  ]
+    .concat(
+      rows.map(
+        (r, k) =>
+          `[${k}] ${r.company}｜官网 ${r.website || "无"}｜市场 ${r.market || "未知"}\n` +
+          `     搜索摘要：${(r.signal || "无").slice(0, 150)}\n` +
+          `     官网自述：${r.facts.length ? r.facts.join(" / ").slice(0, 400) : "（没抓到）"}`
+      )
+    )
+    .join("\n");
+
+  const arr = extractJsonArray(await callAI(system, user, null, 2000));
+  if (!Array.isArray(arr)) return 0;
+
+  let off = 0;
+  arr.forEach((item) => {
+    const row = rows[Number(item?.i)];
+    const fit = Number(item?.fit);
+    if (!row || !Number.isFinite(fit)) return;
+    const cur = state.prospects.find((p) => p.id === row.id);
+    if (!cur) return;
+    const why = String(item.why || "").slice(0, 60);
+    if (fit < FIT_OFF_TARGET) {
+      off += 1;
+      patchProspect(row.id, {
+        offTarget: true,
+        offTargetReason: "fit",
+        fitScore: fit,
+        fitNote: why || "不是采购/进口/分销我方产品的角色",
+        status: ["已回复", "已入队"].includes(cur.status) ? cur.status : "不对口"
+      });
+    } else {
+      patchProspect(row.id, { offTarget: false, offTargetReason: "", fitScore: fit, fitNote: why });
+    }
+  });
+  return off;
+}
+
+async function vetLeads(ids) {
+  const targets = ids
+    .map((id) => state.prospects.find((p) => p.id === id))
+    // simulated：演示数据的域名是拼出来的，抓它等于对着不存在的站发请求，
+    // 然后把整批演示线索判成死站。selfTest：自测线索不是客户。
+    // offTarget：已经判过的不重判（用户手动「确认对口，恢复」过的更不能推翻）。
+    .filter((p) => p && !p.simulated && !p.selfTest && !p.offTarget);
+  if (!targets.length) return;
+
+  const canHarvest = netReady();
+  const canJudge = aiEnabled() && !!(state.campaign?.product || "").trim();
+  if (!canHarvest && !canJudge) return; // 两条腿都没有就别报噪音
+
+  addLog(`入池体检：${targets.length} 家新线索排队核对中…`);
+  renderLogs();
+
+  const rows = [];
+  let dead = 0;
+  for (const p of targets) {
+    let facts = [];
+    if (canHarvest) {
+      // eslint-disable-next-line no-await-in-loop
+      const got = await vetHarvestOne(p);
+      if (got.dead) {
+        dead += 1;
+        continue; // 域名都不存在，不必再花 AI 的钱判它对不对口
+      }
+      facts = got.facts;
+    }
+    const cur = state.prospects.find((x) => x.id === p.id) || p;
+    rows.push({
+      id: p.id,
+      company: cur.company,
+      website: cur.website || "",
+      market: cur.market || "",
+      signal: cur.buyingSignal || "",
+      facts
+    });
+  }
+
+  let off = 0;
+  if (canJudge) {
+    for (let i = 0; i < rows.length; i += VET_BATCH_SIZE) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        off += await vetFitBatch(rows.slice(i, i + VET_BATCH_SIZE));
+      } catch (error) {
+        addLog(`入池体检的对口判定失败：${error.message}（线索已入池，可稍后用「AI 找联系人」逐条判）`);
+        break;
+      }
+    }
+  }
+
+  saveState();
+  render();
+
+  const parts = [];
+  if (dead) parts.push(`${dead} 家域名不存在`);
+  if (off) parts.push(`${off} 家不对口`);
+  const kept = targets.length - dead - off;
+  addLog(
+    parts.length
+      ? `入池体检完成：${targets.length} 家里拦下 ${parts.join("、")}，${kept} 家留在池子里。被拦的不进批量入队和自动驾驶，你不同意可在潜客详情里恢复。`
+      : `入池体检完成：${targets.length} 家全部通过${canJudge ? "" : "（未配 AI 引擎，只做了官网核对）"}`
+  );
 }
 
 /* ============================== 邮箱存在性验证 ============================== */

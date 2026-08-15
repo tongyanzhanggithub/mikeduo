@@ -105,6 +105,11 @@ function admitProspects(list, sourceLabel = "") {
     if (p && !p.createdAt) p.createdAt = new Date(now + i).toISOString();
   });
 
+  // 入池体检：抓官网核实这家公司真实存在，并批量判一次对不对口。
+  // 放在这个唯一闸门上，三条入池路径（联网搜索 / 直连 SerpAPI / 粘贴导入）
+  // 一次覆盖。实现在 09-netprobe.js，浏览器直开时不存在，所以要判一下。
+  if (typeof queueVet === "function") queueVet(incoming.map((p) => p && p.id));
+
   if (!isTrial()) return incoming;
 
   const used = typeof state === "undefined" ? 0 : (state.prospects || []).length;

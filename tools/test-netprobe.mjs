@@ -17,8 +17,16 @@ import assert from "node:assert/strict";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const np = require(join(root, "electron", "netprobe.js"));
-const { extractEmails, extractFacts, rankEmail, robotsAllows, extractSocial, extractPhones, extractWhatsappPhone } =
-  np._internals;
+const {
+  extractEmails,
+  extractFacts,
+  rankEmail,
+  robotsAllows,
+  extractSocial,
+  extractPhones,
+  extractWhatsappPhone,
+  resolveFailCode
+} = np._internals;
 
 let passed = 0;
 const check = (name, fn) => {
@@ -254,6 +262,40 @@ check("订单号那种超长数字串不会被当成电话", () => {
 
 check("太短的数字不算电话", () => {
   assert.equal(extractPhones("Tel: 12345").length, 0);
+});
+
+/* resolveFailCode 决定一条线索会不会被入池体检判死。误判的代价是不对称的：
+   放进来一家假公司只是浪费一次触达，把一家真公司判死是直接丢掉客户。
+   所以这几条守的是同一件事——除非真的解析不到域名，否则不许报 ENOTFOUND。 */
+
+check("两次尝试都解析不到，才判定域名不存在", () => {
+  assert.equal(
+    resolveFailCode([
+      { url: "https://x.com/", ok: false, reason: "域名解析不到", code: "ENOTFOUND" },
+      { url: "http://x.com/", ok: false, reason: "域名解析不到", code: "ENOTFOUND" }
+    ]),
+    "ENOTFOUND"
+  );
+});
+
+check("robots.txt 整站封禁时请求没发出去，不能当成域名不存在", () => {
+  assert.equal(resolveFailCode([]), "");
+});
+
+check("超时、403、证书问题都只是这次没抓着，不判域名死", () => {
+  assert.equal(resolveFailCode([{ ok: false, reason: "超时", code: "ETIMEDOUT" }]), "ETIMEDOUT");
+  assert.equal(resolveFailCode([{ ok: false, reason: "HTTP 403", code: "" }]), "");
+  assert.equal(resolveFailCode([{ ok: false, reason: "HTTPS 握手失败", code: "EPROTO" }]), "EPROTO");
+});
+
+check("https 解析不到但 http 是别的错——说明域名在，只是没抓着", () => {
+  assert.equal(
+    resolveFailCode([
+      { ok: false, reason: "域名解析不到", code: "ENOTFOUND" },
+      { ok: false, reason: "超时", code: "ETIMEDOUT" }
+    ]),
+    "ETIMEDOUT"
+  );
 });
 
 console.log(`\n${passed} 项全部通过`);

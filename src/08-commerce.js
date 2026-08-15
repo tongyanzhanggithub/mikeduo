@@ -1047,7 +1047,12 @@ function pendingVerifyCount() {
 // 潜客列表里的一枚小徽章：这条现在能不能发出去（状态即信息）
 function verifyPill(prospect) {
   // 不对口优先于一切：这条线索根本不该发，验证状态是多余信息
-  if (prospect?.offTarget) return `<span class="mkd-verify-badge is-offtarget">AI 判定不对口</span>`;
+  if (prospect?.offTarget) {
+    // 域名压根解析不到是「事实」，不是 AI 的判断。两者混着说会让用户
+    // 以为可以推翻它——而假域名是推翻不了的，往那儿发信只会退信。
+    const label = prospect.offTargetReason === "dead" ? "官网不存在" : "AI 判定不对口";
+    return `<span class="mkd-verify-badge is-offtarget">${label}</span>`;
+  }
   if (!prospect?.email) return `<span class="mkd-verify-badge is-guessed">缺邮箱</span>`;
   const key = emailVerificationState(prospect, prospect.email);
   if (key === "verified") return `<span class="mkd-verify-badge is-verified">✓ 已验证</span>`;
@@ -1059,10 +1064,19 @@ function verifyPill(prospect) {
 function renderSendEligibility(prospect) {
   // AI 说不对口就把话说完：为什么不对口、建议怎么处理，而不是继续展示一堆猜的联系方式
   if (prospect?.offTarget) {
+    const dead = prospect.offTargetReason === "dead";
     return `<div class="offtarget-callout">
-        <strong>⛔ AI 判定这家不对口${typeof prospect.fitScore === "number" ? `（匹配度 ${prospect.fitScore}%）` : ""}</strong>
+        <strong>⛔ ${
+          dead
+            ? "这家公司的官网不存在"
+            : `AI 判定这家不对口${typeof prospect.fitScore === "number" ? `（匹配度 ${prospect.fitScore}%）` : ""}`
+        }</strong>
         <p>${escapeHtml(prospect.fitNote || "不是采购/进口/分销我方产品的角色")}</p>
-        <p class="mkd-hint">所以没有为它推测联系人和邮箱——在"完全不对口"旁边摆一个编出来的人名，只会害你发错人。批量入队和自动驾驶都会跳过它。</p>
+        <p class="mkd-hint">${
+          dead
+            ? "域名解析不到，说明这个网址是搜索结果或 AI 给出的假地址。往这种域名发信必退，退信多了会连累你自己的发信域名。批量入队和自动驾驶都会跳过它。"
+            : '所以没有为它推测联系人和邮箱——在"完全不对口"旁边摆一个编出来的人名，只会害你发错人。批量入队和自动驾驶都会跳过它。'
+        }</p>
         <div class="ot-actions">
           <button class="ghost-button danger-button" data-mkd-drop="${prospect.id}" type="button"><span>移出线索池</span></button>
           <button class="ghost-button" data-mkd-keep="${prospect.id}" type="button"><span>我确认对口，恢复</span></button>
@@ -2066,6 +2080,9 @@ document.addEventListener(
       const p = state.prospects.find((x) => x.id === keep.dataset.mkdKeep);
       if (p) {
         p.offTarget = false;
+        // 理由也要一起清掉，否则徽章会继续按 dead 显示「官网不存在」——
+        // 用户明明已经手动推翻了这条判断。
+        p.offTargetReason = "";
         if (p.status === "不对口") p.status = "已丰富";
         addLog(`已恢复 ${p.company}：按你的判断当对口客户处理（联系方式仍要补全并验证才能发信）`);
         saveState();

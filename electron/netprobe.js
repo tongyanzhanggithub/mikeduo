@@ -107,7 +107,10 @@ function requestOnce(url, redirectsLeft) {
       resolve({ ok: false, reason: "超时", url });
     });
     req.on("error", (e) => {
-      resolve({ ok: false, reason: friendlyNetError(e), url });
+      // 原始错误码要一起带出去。译成中文的 reason 是给人看的，
+      // 但「域名根本解析不到」和「对方站慢/拦爬虫」在程序里必须分得开：
+      // 前者能断定这个域名是假的，后者只是这次没抓着，不能据此判死。
+      resolve({ ok: false, reason: friendlyNetError(e), code: (e && e.code) || "", url });
     });
     req.end();
   });
@@ -340,6 +343,21 @@ function contactLinks(html, baseUrl) {
 
 // 抓一个公司官网，尽力找出真实联系方式。
 // 绝不猜、绝不拼——找不到就是找不到，返回空数组。
+/* 首页抓不到时，判断这到底是「域名不存在」还是「只是这次没抓着」。
+   调用方（入池体检）拿 ENOTFOUND 当作把线索判死的依据，所以这里的口径
+   必须严：错判一家真公司出局，比放进来一家假的代价大得多。
+
+   ① visited 为空 —— 请求压根没发出去（robots.txt 整站封禁），
+      这不是域名的问题，绝不能报 ENOTFOUND。
+   ② https 失败会退到 http 再试一次，两条记录都在 visited 里。
+      只要任何一次拿到过 ENOTFOUND 以外的结果，就说明域名解析得到，
+      只是这次没抓着（超时、403、拦爬虫、证书问题）。 */
+function resolveFailCode(visited) {
+  if (!visited.length) return "";
+  if (visited.every((v) => v.code === "ENOTFOUND")) return "ENOTFOUND";
+  return visited[visited.length - 1].code || "";
+}
+
 async function harvestSite(website, opts = {}) {
   const maxPages = Math.max(1, Math.min(6, opts.maxPages || 4));
   const raw = String(website || "").trim();
@@ -374,7 +392,7 @@ async function harvestSite(website, opts = {}) {
       return null;
     }
     const res = await fetchPage(u.toString());
-    visited.push({ url: u.toString(), ok: res.ok, reason: res.reason || "" });
+    visited.push({ url: u.toString(), ok: res.ok, reason: res.reason || "", code: res.code || "" });
     if (!res.ok) return null;
     extractEmails(res.html, res.url).forEach((e) => {
       if (!emails.has(e.email)) emails.set(e.email, e);
@@ -397,6 +415,7 @@ async function harvestSite(website, opts = {}) {
     return {
       ok: false,
       reason: visited.length ? visited[visited.length - 1].reason || "打不开" : "打不开",
+      code: resolveFailCode(visited),
       visited,
       blockedByRobots
     };
@@ -781,6 +800,7 @@ module.exports = {
     extractFacts,
     contactLinks,
     rankEmail,
-    robotsAllows
+    robotsAllows,
+    resolveFailCode
   }
 };
