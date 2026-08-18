@@ -422,6 +422,77 @@ function firstSubjectVariants(tpl, focused, product, origin, prospect) {
   return { A: a, B: b };
 }
 
+/* ---------- 首封信的第一句：我为什么找到你 ----------
+
+   各品类模板的开场都是 "We understand [公司] may source [产品] for the [市场]
+   market"。这句话对谁都成立，也就等于什么都没说——一个欧洲分销商的 info@ 每天
+   躺着几十封长得一模一样的中国供应商开发信，这句正是它们的共同特征。
+
+   能把信从"群发"里拉出来的只有一件事：开头就说出一个**对方能自己核实**的事实。
+   这些事实其实一直握在手里，只是从来没往信里放过——提单条数、他现在在跟谁买、
+   我们是在哪个页面上看到他的。
+
+   这里刻意用「结构化字段拼模板」而不是让模型写。模型看到"写个有说服力的开场"
+   就会开始编，编出一句 "I noticed your recent expansion in the German market"，
+   对方一看就知道是假的，比群发还糟。拼模板只可能说出我们真的知道的东西。
+
+   拿不出硬事实时返回空串，让信回到原来的中性开场。宁可平淡，不可编造——
+   跟"绝不编造联系人"是同一条铁律。 */
+function evidenceOpener(prospect) {
+  if (!prospect) return "";
+  const suppliers = (prospect.currentSuppliers || []).filter(Boolean);
+  const records = Number(prospect.customsRecords) || 0;
+  const goods = String(prospect.customsProduct || "").trim().toLowerCase().slice(0, 60);
+
+  // ① 提单：最硬的事实——他在买、买了多少次、现在跟谁买
+  if (records > 0) {
+    const what = goods ? `shipments of ${goods}` : "import shipments in this product category";
+    const base =
+      records >= 2
+        ? `Public import records list ${records} ${what} to ${prospect.company}.`
+        : `Public import records show a recent shipment of ${goods || "this product category"} to ${prospect.company}.`;
+    return suppliers.length
+      ? `${base} I understand your current supply for this category comes from ${suppliers.slice(0, 2).join(" and ")}, which is why I am writing to you directly rather than sending a general enquiry.`
+      : `${base} That is why I am writing to you directly rather than sending a general enquiry.`;
+  }
+
+  // ② 只知道现供应商（按供应商反查那条路）
+  if (suppliers.length) {
+    return `I understand ${prospect.company} currently sources this product category from ${suppliers.slice(0, 2).join(" and ")}. I am writing because we supply the same category and may be able to act as a second source for you.`;
+  }
+
+  // ③ 竞品经销商页：不点品牌名——那是模型写的中文备注，搬进英文信里既不通顺，
+  //    也可能是它自己加的戏。只说我们确实做过的事：在经销商名录上看到你。
+  if (/竞品/.test(prospect.source || "")) {
+    return `I came across ${prospect.company} listed as an authorised distributor for this product category in ${prospect.market}, which is why I am contacting you specifically.`;
+  }
+
+  // ④ 官网公示：最弱但仍然真实——地址是从他自己网站上抄的，不是买来的名单
+  if (prospect.contactSource === "website" && prospect.contactSourceUrl) {
+    return "I found your contact details on your own website, so I hope this message reaches the right person.";
+  }
+
+  return "";
+}
+
+/* 把开场句插在称呼之后。所有品类模板的正文都以 "Dear X," + 空行 起头，
+   按第一个空行切一刀就能统一插入，不必去改十几套模板各自的文案。 */
+function withEvidenceOpener(body, prospect) {
+  const opener = evidenceOpener(prospect);
+  if (!opener) return body;
+  /* 有了硬开场，那句 "We understand X may source Y for the Z market" 就必须拿掉。
+     刚说完"公开提单显示你进了 12 次货"，紧接着又说"我们了解你可能采购"——
+     自己打自己的脸，反而暴露前面那句也是套模板。十几套品类模板里都有这句，
+     且各自独占一个段落，所以按段落整段丢掉，比去改每一套模板稳妥。 */
+  const paras = String(body)
+    .split("\n\n")
+    .filter((p) => !/^We understand /.test(p.trim()) || !/ may source /.test(p));
+  if (paras.length < 2) return body;
+  // 插在称呼之后、正文之前
+  paras.splice(1, 0, opener);
+  return paras.join("\n\n");
+}
+
 function buildEmailSequence(campaign, prospect) {
   if (!prospect) return [];
 
@@ -524,6 +595,9 @@ ${company}`
 
   // 合规：每封信尾附一句专业的退订说明（回复 unsubscribe 会被系统识别为退订并自动拉黑）
   const unsub = `Should you prefer not to receive further messages, kindly reply with "unsubscribe" and I will remove your details from my list.`;
+  // 只有首封需要「我为什么找到你」——后续跟进再说一遍就啰嗦了
+  if (sequence[0]) sequence[0].body = withEvidenceOpener(sequence[0].body, prospect);
+
   return sequence.map((email) => ({ ...email, body: `${email.body}\n\n${unsub}` }));
 }
 

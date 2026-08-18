@@ -522,6 +522,31 @@ function getStoredAI(prospectId) {
 }
 
 // 把当前活动里对 AI 最有用的上下文汇成几行，喂给写信/回复提示词，让输出更贴产品、更准确
+/* 喂给写信模型的「可核实的事实」清单。
+
+   跟规则版的 evidenceOpener 取的是同一批字段，区别是这里只给事实、不给句子，
+   措辞交给模型。关键在于：这一栏为空时提示词会明确要求它用中性开场，
+   而不是让它自己去想一个"显得做过功课"的开头——那种句子一定是编的。 */
+function evidenceFactLines(prospect) {
+  const lines = [];
+  const suppliers = (prospect.currentSuppliers || []).filter(Boolean);
+  if (Number(prospect.customsRecords) > 0) {
+    lines.push(`海关提单公开记录：该公司有 ${prospect.customsRecords} 条进口记录`);
+  }
+  if (prospect.customsProduct) lines.push(`提单上的货物描述：${prospect.customsProduct}`);
+  if (suppliers.length) lines.push(`它现在的供应商：${suppliers.join("、")}（这是最有力的开场素材）`);
+  if (/竞品/.test(prospect.source || "")) {
+    lines.push("我们是在某竞品的授权经销商/Where-to-buy 页面上看到这家公司的（别点名品牌，我们不确定模型备注是否准确）");
+  }
+  if (prospect.contactSource === "website" && prospect.contactSourceUrl) {
+    lines.push(`联系方式抄自它自己的官网页面：${prospect.contactSourceUrl}`);
+  }
+  if (prospect.companyProfile) lines.push(`官网自述：${String(prospect.companyProfile).slice(0, 200)}`);
+  // buyingSignal 放最后：搜索来的线索这里往往只是 Google 摘要，算不上硬事实
+  if (prospect.buyingSignal) lines.push(`采购信号（可能只是搜索摘要，谨慎使用）：${prospect.buyingSignal}`);
+  return lines.map((x) => `- ${x}`).join("\n");
+}
+
 function campaignContextLines() {
   const c = state.campaign;
   const terms = (c.productTerms || []).filter(Boolean);
@@ -1602,7 +1627,7 @@ async function generateSequenceAI() {
   addLog(`${aiShortName()} 正在为 ${prospect.company} 深度写信…`);
   try {
     const system =
-      "你是顶尖外贸开发信专家。为指定客户写一套 4 封开发信序列（D0 首触 / D3 跟进 / D7 案例或样品 / D14 收尾）。每封 90-140 词。风格要求：专业、正式、得体的 B2B 商务书面语——用正式称呼（如 Dear Mr./Ms. 或 Dear Sir or Madam），完整礼貌的句子，克制不浮夸、无感叹号轰炸、无营销套话；开头简述来意与对我方的简短可信介绍，中段给具体而克制的价值点，结尾一个清晰礼貌的行动请求（如 May I send our catalogue?），落款用 Best regards 加署名与公司名。围绕该客户的业务与市场个性化切入。若给了「具体产品聚焦/英文术语」，主题与正文要点名这个具体产品（用英文行业叫法），而非泛泛的品类；卖点与能力只能用给定的知识库/卖点，不要编造参数。label 用中文。语言规则：按客户市场的商务语言写正文——拉美用西班牙语（巴西用葡萄牙语）、法语区非洲用法语、中东可英语正文+阿语问候；首封在正文下附简短英文版本；其他市场用英文。合规：每封信结尾附一句专业的退订说明（英文，如让对方回复 unsubscribe 即不再打扰），语气礼貌自然。";
+      "你是顶尖外贸开发信专家。为指定客户写一套 4 封开发信序列（D0 首触 / D3 跟进 / D7 案例或样品 / D14 收尾）。每封 90-140 词。风格要求：专业、正式、得体的 B2B 商务书面语——用正式称呼（如 Dear Mr./Ms. 或 Dear Sir or Madam），完整礼貌的句子，克制不浮夸、无感叹号轰炸、无营销套话；开头简述来意与对我方的简短可信介绍，中段给具体而克制的价值点，结尾一个清晰礼貌的行动请求（如 May I send our catalogue?），落款用 Best regards 加署名与公司名。【首封信的第一句】必须是「我为什么找到你」——一个对方能自己核实的具体事实，取自我在下面给出的「可核实的事实」。不要用 We understand you may source... 这类对谁都成立的句子开头，那是群发的招牌。**如果「可核实的事实」一栏是空的或只有泛泛信息，就用诚实的中性开场，绝对不许编造一个你并不知道的事实**（例如不要写 I noticed your recent expansion / your growing presence 这种听起来做过功课、实际是编的句子）——编出来的开场比群发更糟，对方一眼能识破。围绕该客户的业务与市场个性化切入。若给了「具体产品聚焦/英文术语」，主题与正文要点名这个具体产品（用英文行业叫法），而非泛泛的品类；卖点与能力只能用给定的知识库/卖点，不要编造参数。label 用中文。语言规则：按客户市场的商务语言写正文——拉美用西班牙语（巴西用葡萄牙语）、法语区非洲用法语、中东可英语正文+阿语问候；首封在正文下附简短英文版本；其他市场用英文。合规：每封信结尾附一句专业的退订说明（英文，如让对方回复 unsubscribe 即不再打扰），语气礼貌自然。";
     const ctx = campaignContextLines();
     const user = `产品: ${state.campaign.product}
 卖点: ${state.campaign.valueProps}
@@ -1612,7 +1637,9 @@ async function generateSequenceAI() {
 市场: ${prospect.market}
 联系人: ${prospect.contactName}（${prospect.role}）
 网站: ${prospect.website}
-采购信号: ${prospect.buyingSignal}`;
+
+可核实的事实（只能用这里的内容开场；这一栏为空就用中性开场，不要编）:
+${evidenceFactLines(prospect) || "（没有硬事实，用中性开场）"}`;
     const result = await callAI(system, user, AI_SEQUENCE_SCHEMA, 3000);
     // 合规：AI 写的信同样要带退订说明（模板级注入不可删，AI 不会自己加）
     state.sequence = (result.emails || []).slice(0, 6).map((email) => ({

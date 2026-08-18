@@ -1554,6 +1554,8 @@ function admitCustomsBuyers() {
       buyingSignal: `从「${r.query}」进货 ${b.count} 次${b.latest ? ` · 最近 ${b.latest}` : ""}${b.hs.length ? ` · HS ${b.hs.slice(0, 2).join("/")}` : ""}`,
       companySize: "待确认",
       customsRecords: b.count,
+      // 反查这条路上，"现在跟谁买"就是用户自己输进去的那个竞争对手，本来就知道
+      currentSuppliers: [titleCaseCompany(r.query)].filter(Boolean),
       searchQuery: `按供应商反查：${r.query}`
     });
   });
@@ -1601,12 +1603,26 @@ function importCustomsCsv(text, campaign) {
       hs: iHs >= 0 ? String(r[iHs] || "").replace(/\D/g, "").slice(0, 6) : "",
       desc: iDesc >= 0 ? String(r[iDesc] || "").trim() : ""
     });
-    const g = groups.get(key) || { name: raw, count: 0, hs: new Set(), shippers: new Set(), latest: "", country: "", desc: "" };
+    const g = groups.get(key) || { name: raw, count: 0, hs: new Set(), shippers: new Map(), latest: "", country: "", desc: "" };
     g.count += 1;
     // 同一家公司在提单里常有多种写法，取最短的那个（长的多半带 C/O 货代后缀）
     if (raw.length < g.name.length) g.name = raw;
     if (iHs >= 0 && r[iHs]) g.hs.add(String(r[iHs]).replace(/\D/g, "").slice(0, 6));
-    if (iShipper >= 0 && r[iShipper]) g.shippers.add(companyDedupeKey(r[iShipper]));
+    if (iShipper >= 0 && r[iShipper]) {
+      /* 供应商名字以前被扔掉了，只留了个数量。可它是这条线索上最值钱的一个事实——
+         「我看到你们一直在从 X 进这个品类」是冷开发信里唯一让对方没法当群发处理的开场。
+         按归一化 key 归并（同一家在提单里写法五花八门），展示名取最短的那个，
+         并记下频次，好分辨主力供应商和偶尔下过一单的。 */
+      const skey = companyDedupeKey(r[iShipper]);
+      const sname = cleanConsigneeName(r[iShipper]);
+      if (skey && sname) {
+        const prev = g.shippers.get(skey);
+        g.shippers.set(skey, {
+          name: prev && prev.name.length <= sname.length ? prev.name : sname,
+          count: (prev ? prev.count : 0) + 1
+        });
+      }
+    }
     if (iCountry >= 0 && r[iCountry] && !g.country) g.country = r[iCountry];
     if (iDesc >= 0 && r[iDesc] && !g.desc) g.desc = r[iDesc];
     if (iDate >= 0 && r[iDate] && r[iDate] > g.latest) g.latest = r[iDate];
@@ -1631,11 +1647,18 @@ function importCustomsCsv(text, campaign) {
       seen.add(key);
       const market = customsMarket(g.country) || markets[index % Math.max(markets.length, 1)] || "United States";
       const hs = [...g.hs].filter(Boolean);
+      // 供货多的排前面：写信时该点名的是主力供应商，不是偶尔下过一单的那家
+      const suppliers = [...g.shippers.values()]
+        .sort((a, b) => b.count - a.count)
+        .map((x) => titleCaseCompany(x.name))
+        .filter(Boolean);
       const signal = [
         `有 ${g.count} 条进口记录`,
         g.latest ? `最近 ${g.latest}` : "",
         hs.length ? `HS ${hs.slice(0, 2).join("/")}` : "",
-        g.shippers.size ? `现有 ${g.shippers.size} 家供应商` : ""
+        suppliers.length
+          ? `现供应商 ${suppliers.slice(0, 2).join("、")}${suppliers.length > 2 ? ` 等 ${suppliers.length} 家` : ""}`
+          : ""
       ]
         .filter(Boolean)
         .join(" · ");
@@ -1662,6 +1685,8 @@ function importCustomsCsv(text, campaign) {
         companySize: "待确认",
         customsRecords: g.count,
         customsProduct: g.desc || "",
+        // 写信要用：对方现在在跟谁买
+        currentSuppliers: suppliers.slice(0, 5),
         searchQuery: "海关提单数据导入"
       });
     });
@@ -1807,7 +1832,7 @@ function importSearchResultsText(text, campaign) {
    粘的是搜索语句、全是平台站、这些公司早就在池里、或者这段文字里压根没有域名。 */
 function explainImportFailure(text) {
   const st = lastImportStats || {};
-  const looksLikeQuery = /-site:|OR\s*"|["“][^"”]+["”]\s*(OR|AND)\s/i.test(text) || /^-\w+(\s+-\w+){2,}/m.test(text);
+  const looksLikeQuery = /-site:|\bOR\b\s*"|["“][^"”]+["”]\s*(OR|AND)\s/i.test(text) || /^-\w+(\s+-\w+){2,}/m.test(text);
   if (looksLikeQuery) {
     return {
       reason: "你粘的是「搜索式」本身，不是搜索结果。搜索式要先拿去 Google 搜，再把结果里的公司官网复制回来。",

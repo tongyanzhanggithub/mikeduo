@@ -291,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "2776cdd5";
+window.__APP_V = "e3312938";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -5743,6 +5743,8 @@ function admitCustomsBuyers() {
       buyingSignal: `从「${r.query}」进货 ${b.count} 次${b.latest ? ` · 最近 ${b.latest}` : ""}${b.hs.length ? ` · HS ${b.hs.slice(0, 2).join("/")}` : ""}`,
       companySize: "待确认",
       customsRecords: b.count,
+      // 反查这条路上，"现在跟谁买"就是用户自己输进去的那个竞争对手，本来就知道
+      currentSuppliers: [titleCaseCompany(r.query)].filter(Boolean),
       searchQuery: `按供应商反查：${r.query}`
     });
   });
@@ -5790,12 +5792,26 @@ function importCustomsCsv(text, campaign) {
       hs: iHs >= 0 ? String(r[iHs] || "").replace(/\D/g, "").slice(0, 6) : "",
       desc: iDesc >= 0 ? String(r[iDesc] || "").trim() : ""
     });
-    const g = groups.get(key) || { name: raw, count: 0, hs: new Set(), shippers: new Set(), latest: "", country: "", desc: "" };
+    const g = groups.get(key) || { name: raw, count: 0, hs: new Set(), shippers: new Map(), latest: "", country: "", desc: "" };
     g.count += 1;
     // 同一家公司在提单里常有多种写法，取最短的那个（长的多半带 C/O 货代后缀）
     if (raw.length < g.name.length) g.name = raw;
     if (iHs >= 0 && r[iHs]) g.hs.add(String(r[iHs]).replace(/\D/g, "").slice(0, 6));
-    if (iShipper >= 0 && r[iShipper]) g.shippers.add(companyDedupeKey(r[iShipper]));
+    if (iShipper >= 0 && r[iShipper]) {
+      /* 供应商名字以前被扔掉了，只留了个数量。可它是这条线索上最值钱的一个事实——
+         「我看到你们一直在从 X 进这个品类」是冷开发信里唯一让对方没法当群发处理的开场。
+         按归一化 key 归并（同一家在提单里写法五花八门），展示名取最短的那个，
+         并记下频次，好分辨主力供应商和偶尔下过一单的。 */
+      const skey = companyDedupeKey(r[iShipper]);
+      const sname = cleanConsigneeName(r[iShipper]);
+      if (skey && sname) {
+        const prev = g.shippers.get(skey);
+        g.shippers.set(skey, {
+          name: prev && prev.name.length <= sname.length ? prev.name : sname,
+          count: (prev ? prev.count : 0) + 1
+        });
+      }
+    }
     if (iCountry >= 0 && r[iCountry] && !g.country) g.country = r[iCountry];
     if (iDesc >= 0 && r[iDesc] && !g.desc) g.desc = r[iDesc];
     if (iDate >= 0 && r[iDate] && r[iDate] > g.latest) g.latest = r[iDate];
@@ -5820,11 +5836,18 @@ function importCustomsCsv(text, campaign) {
       seen.add(key);
       const market = customsMarket(g.country) || markets[index % Math.max(markets.length, 1)] || "United States";
       const hs = [...g.hs].filter(Boolean);
+      // 供货多的排前面：写信时该点名的是主力供应商，不是偶尔下过一单的那家
+      const suppliers = [...g.shippers.values()]
+        .sort((a, b) => b.count - a.count)
+        .map((x) => titleCaseCompany(x.name))
+        .filter(Boolean);
       const signal = [
         `有 ${g.count} 条进口记录`,
         g.latest ? `最近 ${g.latest}` : "",
         hs.length ? `HS ${hs.slice(0, 2).join("/")}` : "",
-        g.shippers.size ? `现有 ${g.shippers.size} 家供应商` : ""
+        suppliers.length
+          ? `现供应商 ${suppliers.slice(0, 2).join("、")}${suppliers.length > 2 ? ` 等 ${suppliers.length} 家` : ""}`
+          : ""
       ]
         .filter(Boolean)
         .join(" · ");
@@ -5851,6 +5874,8 @@ function importCustomsCsv(text, campaign) {
         companySize: "待确认",
         customsRecords: g.count,
         customsProduct: g.desc || "",
+        // 写信要用：对方现在在跟谁买
+        currentSuppliers: suppliers.slice(0, 5),
         searchQuery: "海关提单数据导入"
       });
     });
@@ -5996,7 +6021,7 @@ function importSearchResultsText(text, campaign) {
    粘的是搜索语句、全是平台站、这些公司早就在池里、或者这段文字里压根没有域名。 */
 function explainImportFailure(text) {
   const st = lastImportStats || {};
-  const looksLikeQuery = /-site:|OR\s*"|["“][^"”]+["”]\s*(OR|AND)\s/i.test(text) || /^-\w+(\s+-\w+){2,}/m.test(text);
+  const looksLikeQuery = /-site:|\bOR\b\s*"|["“][^"”]+["”]\s*(OR|AND)\s/i.test(text) || /^-\w+(\s+-\w+){2,}/m.test(text);
   if (looksLikeQuery) {
     return {
       reason: "你粘的是「搜索式」本身，不是搜索结果。搜索式要先拿去 Google 搜，再把结果里的公司官网复制回来。",
@@ -6761,6 +6786,77 @@ function firstSubjectVariants(tpl, focused, product, origin, prospect) {
   return { A: a, B: b };
 }
 
+/* ---------- 首封信的第一句：我为什么找到你 ----------
+
+   各品类模板的开场都是 "We understand [公司] may source [产品] for the [市场]
+   market"。这句话对谁都成立，也就等于什么都没说——一个欧洲分销商的 info@ 每天
+   躺着几十封长得一模一样的中国供应商开发信，这句正是它们的共同特征。
+
+   能把信从"群发"里拉出来的只有一件事：开头就说出一个**对方能自己核实**的事实。
+   这些事实其实一直握在手里，只是从来没往信里放过——提单条数、他现在在跟谁买、
+   我们是在哪个页面上看到他的。
+
+   这里刻意用「结构化字段拼模板」而不是让模型写。模型看到"写个有说服力的开场"
+   就会开始编，编出一句 "I noticed your recent expansion in the German market"，
+   对方一看就知道是假的，比群发还糟。拼模板只可能说出我们真的知道的东西。
+
+   拿不出硬事实时返回空串，让信回到原来的中性开场。宁可平淡，不可编造——
+   跟"绝不编造联系人"是同一条铁律。 */
+function evidenceOpener(prospect) {
+  if (!prospect) return "";
+  const suppliers = (prospect.currentSuppliers || []).filter(Boolean);
+  const records = Number(prospect.customsRecords) || 0;
+  const goods = String(prospect.customsProduct || "").trim().toLowerCase().slice(0, 60);
+
+  // ① 提单：最硬的事实——他在买、买了多少次、现在跟谁买
+  if (records > 0) {
+    const what = goods ? `shipments of ${goods}` : "import shipments in this product category";
+    const base =
+      records >= 2
+        ? `Public import records list ${records} ${what} to ${prospect.company}.`
+        : `Public import records show a recent shipment of ${goods || "this product category"} to ${prospect.company}.`;
+    return suppliers.length
+      ? `${base} I understand your current supply for this category comes from ${suppliers.slice(0, 2).join(" and ")}, which is why I am writing to you directly rather than sending a general enquiry.`
+      : `${base} That is why I am writing to you directly rather than sending a general enquiry.`;
+  }
+
+  // ② 只知道现供应商（按供应商反查那条路）
+  if (suppliers.length) {
+    return `I understand ${prospect.company} currently sources this product category from ${suppliers.slice(0, 2).join(" and ")}. I am writing because we supply the same category and may be able to act as a second source for you.`;
+  }
+
+  // ③ 竞品经销商页：不点品牌名——那是模型写的中文备注，搬进英文信里既不通顺，
+  //    也可能是它自己加的戏。只说我们确实做过的事：在经销商名录上看到你。
+  if (/竞品/.test(prospect.source || "")) {
+    return `I came across ${prospect.company} listed as an authorised distributor for this product category in ${prospect.market}, which is why I am contacting you specifically.`;
+  }
+
+  // ④ 官网公示：最弱但仍然真实——地址是从他自己网站上抄的，不是买来的名单
+  if (prospect.contactSource === "website" && prospect.contactSourceUrl) {
+    return "I found your contact details on your own website, so I hope this message reaches the right person.";
+  }
+
+  return "";
+}
+
+/* 把开场句插在称呼之后。所有品类模板的正文都以 "Dear X," + 空行 起头，
+   按第一个空行切一刀就能统一插入，不必去改十几套模板各自的文案。 */
+function withEvidenceOpener(body, prospect) {
+  const opener = evidenceOpener(prospect);
+  if (!opener) return body;
+  /* 有了硬开场，那句 "We understand X may source Y for the Z market" 就必须拿掉。
+     刚说完"公开提单显示你进了 12 次货"，紧接着又说"我们了解你可能采购"——
+     自己打自己的脸，反而暴露前面那句也是套模板。十几套品类模板里都有这句，
+     且各自独占一个段落，所以按段落整段丢掉，比去改每一套模板稳妥。 */
+  const paras = String(body)
+    .split("\n\n")
+    .filter((p) => !/^We understand /.test(p.trim()) || !/ may source /.test(p));
+  if (paras.length < 2) return body;
+  // 插在称呼之后、正文之前
+  paras.splice(1, 0, opener);
+  return paras.join("\n\n");
+}
+
 function buildEmailSequence(campaign, prospect) {
   if (!prospect) return [];
 
@@ -6863,6 +6959,9 @@ ${company}`
 
   // 合规：每封信尾附一句专业的退订说明（回复 unsubscribe 会被系统识别为退订并自动拉黑）
   const unsub = `Should you prefer not to receive further messages, kindly reply with "unsubscribe" and I will remove your details from my list.`;
+  // 只有首封需要「我为什么找到你」——后续跟进再说一遍就啰嗦了
+  if (sequence[0]) sequence[0].body = withEvidenceOpener(sequence[0].body, prospect);
+
   return sequence.map((email) => ({ ...email, body: `${email.body}\n\n${unsub}` }));
 }
 
@@ -8355,6 +8454,31 @@ function getStoredAI(prospectId) {
 }
 
 // 把当前活动里对 AI 最有用的上下文汇成几行，喂给写信/回复提示词，让输出更贴产品、更准确
+/* 喂给写信模型的「可核实的事实」清单。
+
+   跟规则版的 evidenceOpener 取的是同一批字段，区别是这里只给事实、不给句子，
+   措辞交给模型。关键在于：这一栏为空时提示词会明确要求它用中性开场，
+   而不是让它自己去想一个"显得做过功课"的开头——那种句子一定是编的。 */
+function evidenceFactLines(prospect) {
+  const lines = [];
+  const suppliers = (prospect.currentSuppliers || []).filter(Boolean);
+  if (Number(prospect.customsRecords) > 0) {
+    lines.push(`海关提单公开记录：该公司有 ${prospect.customsRecords} 条进口记录`);
+  }
+  if (prospect.customsProduct) lines.push(`提单上的货物描述：${prospect.customsProduct}`);
+  if (suppliers.length) lines.push(`它现在的供应商：${suppliers.join("、")}（这是最有力的开场素材）`);
+  if (/竞品/.test(prospect.source || "")) {
+    lines.push("我们是在某竞品的授权经销商/Where-to-buy 页面上看到这家公司的（别点名品牌，我们不确定模型备注是否准确）");
+  }
+  if (prospect.contactSource === "website" && prospect.contactSourceUrl) {
+    lines.push(`联系方式抄自它自己的官网页面：${prospect.contactSourceUrl}`);
+  }
+  if (prospect.companyProfile) lines.push(`官网自述：${String(prospect.companyProfile).slice(0, 200)}`);
+  // buyingSignal 放最后：搜索来的线索这里往往只是 Google 摘要，算不上硬事实
+  if (prospect.buyingSignal) lines.push(`采购信号（可能只是搜索摘要，谨慎使用）：${prospect.buyingSignal}`);
+  return lines.map((x) => `- ${x}`).join("\n");
+}
+
 function campaignContextLines() {
   const c = state.campaign;
   const terms = (c.productTerms || []).filter(Boolean);
@@ -9435,7 +9559,7 @@ async function generateSequenceAI() {
   addLog(`${aiShortName()} 正在为 ${prospect.company} 深度写信…`);
   try {
     const system =
-      "你是顶尖外贸开发信专家。为指定客户写一套 4 封开发信序列（D0 首触 / D3 跟进 / D7 案例或样品 / D14 收尾）。每封 90-140 词。风格要求：专业、正式、得体的 B2B 商务书面语——用正式称呼（如 Dear Mr./Ms. 或 Dear Sir or Madam），完整礼貌的句子，克制不浮夸、无感叹号轰炸、无营销套话；开头简述来意与对我方的简短可信介绍，中段给具体而克制的价值点，结尾一个清晰礼貌的行动请求（如 May I send our catalogue?），落款用 Best regards 加署名与公司名。围绕该客户的业务与市场个性化切入。若给了「具体产品聚焦/英文术语」，主题与正文要点名这个具体产品（用英文行业叫法），而非泛泛的品类；卖点与能力只能用给定的知识库/卖点，不要编造参数。label 用中文。语言规则：按客户市场的商务语言写正文——拉美用西班牙语（巴西用葡萄牙语）、法语区非洲用法语、中东可英语正文+阿语问候；首封在正文下附简短英文版本；其他市场用英文。合规：每封信结尾附一句专业的退订说明（英文，如让对方回复 unsubscribe 即不再打扰），语气礼貌自然。";
+      "你是顶尖外贸开发信专家。为指定客户写一套 4 封开发信序列（D0 首触 / D3 跟进 / D7 案例或样品 / D14 收尾）。每封 90-140 词。风格要求：专业、正式、得体的 B2B 商务书面语——用正式称呼（如 Dear Mr./Ms. 或 Dear Sir or Madam），完整礼貌的句子，克制不浮夸、无感叹号轰炸、无营销套话；开头简述来意与对我方的简短可信介绍，中段给具体而克制的价值点，结尾一个清晰礼貌的行动请求（如 May I send our catalogue?），落款用 Best regards 加署名与公司名。【首封信的第一句】必须是「我为什么找到你」——一个对方能自己核实的具体事实，取自我在下面给出的「可核实的事实」。不要用 We understand you may source... 这类对谁都成立的句子开头，那是群发的招牌。**如果「可核实的事实」一栏是空的或只有泛泛信息，就用诚实的中性开场，绝对不许编造一个你并不知道的事实**（例如不要写 I noticed your recent expansion / your growing presence 这种听起来做过功课、实际是编的句子）——编出来的开场比群发更糟，对方一眼能识破。围绕该客户的业务与市场个性化切入。若给了「具体产品聚焦/英文术语」，主题与正文要点名这个具体产品（用英文行业叫法），而非泛泛的品类；卖点与能力只能用给定的知识库/卖点，不要编造参数。label 用中文。语言规则：按客户市场的商务语言写正文——拉美用西班牙语（巴西用葡萄牙语）、法语区非洲用法语、中东可英语正文+阿语问候；首封在正文下附简短英文版本；其他市场用英文。合规：每封信结尾附一句专业的退订说明（英文，如让对方回复 unsubscribe 即不再打扰），语气礼貌自然。";
     const ctx = campaignContextLines();
     const user = `产品: ${state.campaign.product}
 卖点: ${state.campaign.valueProps}
@@ -9445,7 +9569,9 @@ async function generateSequenceAI() {
 市场: ${prospect.market}
 联系人: ${prospect.contactName}（${prospect.role}）
 网站: ${prospect.website}
-采购信号: ${prospect.buyingSignal}`;
+
+可核实的事实（只能用这里的内容开场；这一栏为空就用中性开场，不要编）:
+${evidenceFactLines(prospect) || "（没有硬事实，用中性开场）"}`;
     const result = await callAI(system, user, AI_SEQUENCE_SCHEMA, 3000);
     // 合规：AI 写的信同样要带退订说明（模板级注入不可删，AI 不会自己加）
     state.sequence = (result.emails || []).slice(0, 6).map((email) => ({
