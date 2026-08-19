@@ -291,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "3d5288b8";
+window.__APP_V = "885820d9";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -17715,6 +17715,7 @@ async function screenProspect(prospectId, quiet = false) {
           screening: {
             at: new Date().toISOString(),
             listBuiltAt: res.builtAt,
+            listAge: res.age || null,
             hit: !!res.hit,
             match: res.match || "",
             level: res.level || "",
@@ -17836,7 +17837,15 @@ const SCREEN_LEVEL_TEXT = { block: "必须停", warn: "待确认", info: "可放
 
 function screeningPanelHtml(prospect) {
   const s = prospect?.screening;
-  if (!s || !s.hit) return "";
+  if (!s) return "";
+
+  // 查了但没命中：正常情况下不用显示任何东西。但如果名单已经过期，
+  // 这恰恰是最危险的一刻——用户看到"没问题"就放心发了。所以只在过期时露出来。
+  if (!s.hit) {
+    const a = s.listAge;
+    if (!a || a.level === "ok") return "";
+    return `<p class="screen-stale standalone is-${a.level}">筛查未命中，但${escapeHtml(a.text)}</p>`;
+  }
   const v = screeningVerdict(prospect);
   const rows =
     s.match === "exact"
@@ -17861,8 +17870,17 @@ function screeningPanelHtml(prospect) {
         </li>`
         );
 
+  // 名单陈旧时，这条要顶在最前面。埋在底部小字里等于没说——
+  // 用一份过期名单查完显示"未命中"，用户会以为自己是安全的。
+  const age = s.listAge;
+  const ageBar =
+    age && (age.level === "alert" || age.level === "warn" || age.level === "unknown")
+      ? `<p class="screen-stale is-${age.level}">${escapeHtml(age.text)}</p>`
+      : "";
+
   return `
     <div class="screen-panel is-${v ? v.level : "info"}">
+      ${ageBar}
       <div class="screen-head">
         <strong>合规筛查${s.match === "exact" ? "命中" : "疑似命中"}</strong>
         <span>${escapeHtml(
@@ -18030,6 +18048,11 @@ function hsPanelHtml() {
               .join("")}</div>`
           : ""
       }
+      ${
+        c.listAge && c.listAge.level !== "ok"
+          ? `<p class="screen-stale is-${c.listAge.level}">${escapeHtml(c.listAge.text)}</p>`
+          : ""
+      }
       <p class="hs-caveat">
         HS 国际六位目录（截至 ${escapeHtml(c.listBuiltAt || "?")}）。各国在六位之后自行扩展（中国 8 位、美国 10 位），
         <strong>报关以目的国税则和海关最终认定为准</strong>——这里只能告诉你这个码存不存在、是什么。
@@ -18195,7 +18218,7 @@ async function runTendersSearch() {
     addLog(`采购官库读取失败：${r?.reason || "未知原因"}`);
   } else {
     tendersState.rows = r.rows;
-    tendersState.meta = { builtAt: r.builtAt, dataThrough: r.dataThrough, count: r.count, caveats: r.caveats };
+    tendersState.meta = { builtAt: r.builtAt, dataThrough: r.dataThrough, count: r.count, caveats: r.caveats, age: r.age };
   }
   renderTendersPanel();
 }
@@ -18294,6 +18317,7 @@ function tendersPanelHtml() {
       ${
         m
           ? `<div class="tender-caveats">
+               ${m.age && m.age.level !== "ok" ? `<p class="tender-stale">${escapeHtml(m.age.text)}</p>` : ""}
                <p><strong>数据截至 ${escapeHtml(m.dataThrough || "?")}</strong>（构建于 ${escapeHtml(m.builtAt)}）</p>
                ${m.caveats.map((c) => `<p>· ${escapeHtml(c)}</p>`).join("")}
              </div>`

@@ -12,6 +12,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const { ageOf } = require("./dataset-age");
 
 let DB = null;
 
@@ -25,7 +26,7 @@ function load() {
 
 function meta() {
   const db = load();
-  return { builtAt: db.builtAt, dataThrough: db.dataThrough, count: db.count, caveats: db.caveats, source: db.source };
+  return { builtAt: db.builtAt, dataThrough: db.dataThrough, count: db.count, caveats: db.caveats, source: db.source, age: ageOf("tenders", db.builtAt) };
 }
 
 function countries() {

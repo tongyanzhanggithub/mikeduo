@@ -19,6 +19,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const { ageOf } = require("./dataset-age");
 
 let DB = null; // { builtAt, count, caveats, exact: Map, list: [] }
 
@@ -138,7 +139,7 @@ const MIN_PARTIAL_WORDS = 2;
 function screen(name) {
   const db = load();
   const key = normalize(name);
-  const meta = { builtAt: db.builtAt, count: db.count, caveats: db.caveats };
+  const meta = { builtAt: db.builtAt, count: db.count, caveats: db.caveats, age: ageOf("screening", db.builtAt) };
   if (!key) return { ok: true, hit: false, ...meta };
 
   // 一档：归一化后完全相等
@@ -185,7 +186,7 @@ function screen(name) {
 
 function stats() {
   const db = load();
-  return { ok: true, builtAt: db.builtAt, count: db.count, source: db.source, caveats: db.caveats };
+  return { ok: true, builtAt: db.builtAt, count: db.count, source: db.source, caveats: db.caveats, age: ageOf("screening", db.builtAt) };
 }
 
 module.exports = { screen, stats, normalize, _internals: { describeHit, SECURITIES_ONLY, LEGAL_SET } };

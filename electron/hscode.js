@@ -9,6 +9,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const { ageOf } = require("./dataset-age");
 
 let DB = null;
 
@@ -41,7 +42,7 @@ function pathOf(code, byCode) {
 
 function lookup(input) {
   const db = load();
-  const meta = { builtAt: db.builtAt, count: db.count, caveats: db.caveats };
+  const meta = { builtAt: db.builtAt, count: db.count, caveats: db.caveats, age: ageOf("hscodes", db.builtAt) };
   const digits = normalizeCode(input);
 
   if (!digits) return { ok: true, valid: false, reason: "没填编码", queried: input, ...meta };
@@ -129,7 +130,7 @@ function search(keyword, limit = 20) {
 
 function stats() {
   const db = load();
-  return { ok: true, builtAt: db.builtAt, count: db.count, source: db.source, caveats: db.caveats };
+  return { ok: true, builtAt: db.builtAt, count: db.count, source: db.source, caveats: db.caveats, age: ageOf("hscodes", db.builtAt) };
 }
 
 module.exports = { lookup, search, stats, normalizeCode };
