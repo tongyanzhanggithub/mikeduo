@@ -291,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "e8193ded";
+window.__APP_V = "3d5288b8";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -18160,5 +18160,206 @@ render = function () {
     mountHsPanel();
   } catch (error) {
     console.error("[hs] 面板挂载失败", error);
+  }
+};
+
+/* ==================== 公共部门货物采购官（独立线索源） ==================== */
+
+// 刻意不混进主线索池。画像完全不同：发展中国家公共部门与国际组织，
+// 品类杂、单子偏小、采购流程也不同。混进去用户会拿给进口商写的开发信模板
+// 去发采购官，口径完全不对。
+//
+// 更重要的是**不能包装成"最新标讯"**：GO 类公告没有截止日字段，全库只有
+// 231 条截止日未过。它是联系人库，界面上就得这么说。
+
+let tendersState = { country: "", keyword: "", activeSince: "2025-01-01", rows: [], meta: null, loading: false };
+
+function tendersReady() {
+  const b = mkdBridge();
+  return !!(b && typeof b.tendersSearch === "function");
+}
+
+async function runTendersSearch() {
+  if (!tendersReady()) return;
+  tendersState.loading = true;
+  renderTendersPanel();
+  const r = await window.mkd.tendersSearch({
+    country: tendersState.country,
+    keyword: tendersState.keyword,
+    activeSince: tendersState.activeSince,
+    limit: 60
+  });
+  tendersState.loading = false;
+  if (!r?.ok) {
+    tendersState.rows = [];
+    addLog(`采购官库读取失败：${r?.reason || "未知原因"}`);
+  } else {
+    tendersState.rows = r.rows;
+    tendersState.meta = { builtAt: r.builtAt, dataThrough: r.dataThrough, count: r.count, caveats: r.caveats };
+  }
+  renderTendersPanel();
+}
+
+// 导入到主线索池：明确标来源，联系方式算「真实源」——这些是官方公开发布的
+// 公务联系方式，比官网抓取还硬。但仍要留出处，和别处一个标准。
+function importTenderContacts(emails) {
+  const picked = tendersState.rows.filter((r) => emails.includes(r.email));
+  if (!picked.length) return;
+
+  const list = picked.map((r) => ({
+    id: makeId("prospect"),
+    company: r.org || r.name || r.email.split("@")[1],
+    contactName: r.name || "",
+    email: r.email,
+    phone: r.phone || "",
+    website: "",
+    market: r.country || "",
+    status: "待联系",
+    source: "公共部门采购公告",
+    contactSource: "webhook", // 官方公开发布的公务联系方式，走「真实源」口径
+    contactSourceUrl: "",
+    emailCandidates: [{ email: r.email, pattern: "verified", confidence: 95, source_url: "世行采购公告（公开发布）" }],
+    profile: r.buys?.length ? `采购过：${r.buys.join("；").slice(0, 200)}` : "",
+    tenderMeta: { lastNotice: r.lastNotice, noticeCount: r.noticeCount, dataThrough: tendersState.meta?.dataThrough }
+  }));
+
+  const admitted = admitProspects(list, "公共部门采购官");
+  state.prospects = [...admitted, ...state.prospects];
+  saveState();
+  render();
+  addLog(
+    `已导入 ${admitted.length} 位公共部门采购官到线索池。注意他们的画像和进口商不同——` +
+      `品类杂、单子偏小、走公开采购流程，开发信要另写一套，别套用给分销商的模板。`
+  );
+}
+
+function tendersPanelHtml() {
+  const m = tendersState.meta;
+  const rows = tendersState.rows;
+  return `
+    <div class="tender-panel">
+      <div class="tender-head">
+        <div>
+          <span class="tender-title">公共部门货物采购官</span>
+          <span class="tender-sub">
+            世行融资项目的公开采购公告里留的公务联系人${m ? `，共 ${m.count.toLocaleString()} 位` : ""}。
+            <strong>这是联系人库，不是招标机会</strong>——公告本身多数已过期，但人和机构还在。
+          </span>
+        </div>
+      </div>
+      <div class="tender-filters">
+        <input id="mkdTenderCountry" type="text" placeholder="国家（如 India / Kenya，留空=全部）" value="${escapeHtml(
+          tendersState.country
+        )}" />
+        <input id="mkdTenderKw" type="text" placeholder="买过什么 / 机构名关键词（如 laptop、pump）" value="${escapeHtml(
+          tendersState.keyword
+        )}" />
+        <label class="tender-since">
+          <input type="checkbox" id="mkdTenderActive" ${tendersState.activeSince ? "checked" : ""} />
+          <span>只看 2025 年后仍在发采购公告的</span>
+        </label>
+        <button type="button" class="btn-ghost" data-mkd-tender-search>查询</button>
+      </div>
+      ${
+        tendersState.loading
+          ? `<p class="tender-hint">查询中…</p>`
+          : rows.length
+          ? `<div class="tender-bulk">
+               <label><input type="checkbox" id="mkdTenderAll" /> <span>全选本页 ${rows.length} 位</span></label>
+               <button type="button" class="btn-ghost" data-mkd-tender-import>导入选中到线索池</button>
+             </div>
+             <ul class="tender-list">
+               ${rows
+                 .map(
+                   (r) => `
+                 <li class="tender-item">
+                   <input type="checkbox" class="tender-pick" data-email="${escapeHtml(r.email)}" />
+                   <div class="tender-info">
+                     <strong>${escapeHtml(r.name || "（未署名）")}</strong>
+                     <span class="tender-org">${escapeHtml(r.org || "")}</span>
+                     <div class="tender-meta">
+                       <code>${escapeHtml(r.email)}</code>
+                       ${r.phone ? `<span>${escapeHtml(r.phone)}</span>` : ""}
+                       ${r.country ? `<span>${escapeHtml(r.country)}</span>` : ""}
+                       <span class="tender-last">最近公告 ${escapeHtml(r.lastNotice || "?")} · 共 ${r.noticeCount} 条</span>
+                     </div>
+                     ${r.buys?.length ? `<p class="tender-buys">采购过：${escapeHtml(r.buys.join("；").slice(0, 150))}</p>` : ""}
+                   </div>
+                 </li>`
+                 )
+                 .join("")}
+             </ul>`
+          : `<p class="tender-hint">点「查询」看结果。可以先不填条件，直接看最近还在采购的那批。</p>`
+      }
+      ${
+        m
+          ? `<div class="tender-caveats">
+               <p><strong>数据截至 ${escapeHtml(m.dataThrough || "?")}</strong>（构建于 ${escapeHtml(m.builtAt)}）</p>
+               ${m.caveats.map((c) => `<p>· ${escapeHtml(c)}</p>`).join("")}
+             </div>`
+          : ""
+      }
+    </div>`;
+}
+
+function renderTendersPanel() {
+  const box = document.getElementById("mkdTenderBox");
+  if (!box) return;
+  const focus = document.activeElement?.id;
+  box.innerHTML = tendersPanelHtml();
+  if (focus) document.getElementById(focus)?.focus();
+}
+
+function mountTendersPanel() {
+  const view = document.getElementById("discoveryView");
+  if (!view || !tendersReady()) return;
+  let box = document.getElementById("mkdTenderBox");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "mkdTenderBox";
+    view.appendChild(box);
+    box.innerHTML = tendersPanelHtml();
+  }
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!t) return;
+    if (t.closest("[data-mkd-tender-search]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      tendersState.country = (document.getElementById("mkdTenderCountry")?.value || "").trim();
+      tendersState.keyword = (document.getElementById("mkdTenderKw")?.value || "").trim();
+      tendersState.activeSince = document.getElementById("mkdTenderActive")?.checked ? "2025-01-01" : "";
+      runTendersSearch();
+      return;
+    }
+    if (t.id === "mkdTenderAll") {
+      document.querySelectorAll(".tender-pick").forEach((c) => (c.checked = t.checked));
+      return;
+    }
+    if (t.closest("[data-mkd-tender-import]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const picked = [...document.querySelectorAll(".tender-pick:checked")].map((c) => c.dataset.email);
+      if (!picked.length) {
+        addLog("先勾选要导入的采购官");
+        return;
+      }
+      importTenderContacts(picked);
+    }
+  },
+  true
+);
+
+const __netBaseRender6 = render;
+render = function () {
+  __netBaseRender6();
+  try {
+    mountTendersPanel();
+  } catch (error) {
+    console.error("[tenders] 面板挂载失败", error);
   }
 };

@@ -57,6 +57,10 @@ contextBridge.exposeInMainWorld("mkd", {
   hsLookup: (code) => ipcRenderer.invoke("mkd:hs-lookup", code),
   hsSearch: (keyword, limit) => ipcRenderer.invoke("mkd:hs-search", { keyword, limit }),
 
+  // 公共部门货物采购官：独立线索源
+  tendersSearch: (query) => ipcRenderer.invoke("mkd:tenders-search", query),
+  tendersCountries: () => ipcRenderer.invoke("mkd:tenders-countries"),
+
   // 本地海关提单库：只查不导（整库导出等于给再分发开通道）
   customsAppend: (records) => ipcRenderer.invoke("mkd:customs-append", records),
   customsStats: () => ipcRenderer.invoke("mkd:customs-stats"),

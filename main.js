@@ -14,6 +14,7 @@ const customs = require("./electron/customs");
 const netprobe = require("./electron/netprobe");
 const screening = require("./electron/screening");
 const hscode = require("./electron/hscode");
+const tenders = require("./electron/tenders");
 const updateFeed = require("./electron/update-feed");
 
 const APP_NAME = "觅客舵";
@@ -594,6 +595,25 @@ function registerIpc() {
   ipcMain.handle("mkd:hs-search", (_e, payload) => {
     try {
       return hscode.search(payload?.keyword, payload?.limit);
+    } catch (error) {
+      return { ok: false, reason: String(error?.message || error) };
+    }
+  });
+
+  /* --- 公共部门货物采购官（本地，不联网） ---
+     独立线索源，刻意不混进主线索池：画像与进口商完全不同。 */
+  ipcMain.handle("mkd:tenders-search", (_e, payload) => {
+    try {
+      return tenders.search(payload || {});
+    } catch (error) {
+      writeMainError("tenders", error);
+      return { ok: false, reason: String(error?.message || error) };
+    }
+  });
+
+  ipcMain.handle("mkd:tenders-countries", () => {
+    try {
+      return tenders.countries();
     } catch (error) {
       return { ok: false, reason: String(error?.message || error) };
     }
