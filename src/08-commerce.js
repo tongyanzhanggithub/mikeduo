@@ -209,7 +209,10 @@ function openTrialWall({ rejected = 0, source = "" } = {}) {
         <li>可联系的名额算<strong>存量</strong>不是累计——删掉几条用不上的，锁定的会自动补位。</li>
         <li>激活后<strong>全部即时解锁</strong>，试用期跑出来的数据原样继承。</li>
         <li>功能一个都没锁，你可以完整跑通一遍再决定。</li>
-      </ul>`,
+      </ul>
+      <p class="mkd-hint"><strong>这几样试用期不限次数</strong>，随便用：
+         官网抓联系方式 · 邮箱真伪验证 · 发信域名体检 · 合规筛查 · HS 编码校验 · 采购官库检索。
+         它们都在本机跑、不花接口费，我们没有理由限制你先把价值看清楚。</p>`,
     actions: [
       { label: "先删几条腾位置", onClick: () => navigateTo("prospects") },
       { label: "查看价格", large: true, onClick: () => openSalesPage() },

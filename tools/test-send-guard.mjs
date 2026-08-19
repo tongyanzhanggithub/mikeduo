@@ -227,4 +227,24 @@ check("操作环形缓冲不超过 200 条且自动脱敏", () => {
   assert.equal(T.MKD_OPS.some((o) => /user\d+@corp\.com/.test(o.a)), false);
 });
 
+/* ------------- 试用版不限次的六项能力（2026-08-19 拍板，别顺手加配额） ------------- */
+
+check("试用版对本机跑的六项能力不设配额——这是明确决定，不是遗漏", () => {
+  // 官网抓取 / RCPT 验证 / 域名体检 / 合规筛查 / HS 校验 / 采购官库检索。
+  // 全在本机跑、不花接口费，限制了一分钱省不下来；而它们恰恰是用户第一小时
+  // 就能感受到价值的东西——我们真正的优势（拦退信、防域名被废）全是滞后显现的。
+  assert.match(source, /不设任何次数限制/, "0-brand-edition.js 里的决定说明被删了");
+
+  // 配额只该覆盖按次真金白银计费的接口
+  const quota = /API_DAILY_DEFAULTS\s*=\s*\{([^}]*)\}/.exec(source);
+  assert.equal(!!quota, true, "找不到 API_DAILY_DEFAULTS");
+  const keys = [...quota[1].matchAll(/(\w+)\s*:/g)].map((m) => m[1]).sort();
+  assert.deepEqual(keys, ["hunter", "serp"], `配额表变成了 ${keys.join("/")}，只该有按次计费的接口`);
+
+  // 六项本机能力一个都不该有配额
+  for (const name of ["harvest", "screen", "hs", "probe", "tender", "domain"]) {
+    assert.equal(new RegExp(name + "DailyLimit", "i").test(source), false, name + " 被加了配额");
+  }
+});
+
 console.log(`\n${passed} 项全部通过`);
