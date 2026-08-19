@@ -37,6 +37,7 @@
       "main.js",
       "preload.js",
       "electron/**/*",
+      "data/**/*",
       "index.html",
       "app.js",
       "styles.css",

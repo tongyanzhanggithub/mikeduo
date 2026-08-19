@@ -49,6 +49,10 @@ contextBridge.exposeInMainWorld("mkd", {
   netprobeReset: () => ipcRenderer.invoke("mkd:netprobe-reset"),
   buildStamp: () => ipcRenderer.invoke("mkd:build-stamp"),
 
+  // 合规筛查：本地名单，不联网
+  screenEntity: (name) => ipcRenderer.invoke("mkd:screen-entity", name),
+  screeningStats: () => ipcRenderer.invoke("mkd:screening-stats"),
+
   // 本地海关提单库：只查不导（整库导出等于给再分发开通道）
   customsAppend: (records) => ipcRenderer.invoke("mkd:customs-append", records),
   customsStats: () => ipcRenderer.invoke("mkd:customs-stats"),

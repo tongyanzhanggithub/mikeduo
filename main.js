@@ -12,6 +12,7 @@ const license = require("./electron/license");
 const mailer = require("./electron/mailer");
 const customs = require("./electron/customs");
 const netprobe = require("./electron/netprobe");
+const screening = require("./electron/screening");
 const updateFeed = require("./electron/update-feed");
 
 const APP_NAME = "觅客舵";
@@ -555,6 +556,28 @@ function registerIpc() {
   //  所以必须读全文——只读前几 KB 会永远返回 null，检测静默失效。
   //  按 mtime+size 做缓存：窗口每次获得焦点都会问一次，没必要反复读 650KB。
   let buildStampCache = { key: "", stamp: null };
+  /* --- 合规筛查（本地名单，不联网） ---
+     OFAC + 别名 + UFLPA + BIS-DPL 共 4 万个主体，随包发货 452 KB。
+     首次调用时解压载入并建索引，之后常驻内存。 */
+  ipcMain.handle("mkd:screen-entity", (_e, name) => {
+    try {
+      return screening.screen(name);
+    } catch (error) {
+      writeMainError("screening", error);
+      // 名单读不出来时必须明说，绝不能静默返回"没命中"——
+      // 那会让用户以为查过了，实际根本没查。
+      return { ok: false, reason: String(error?.message || error) };
+    }
+  });
+
+  ipcMain.handle("mkd:screening-stats", () => {
+    try {
+      return screening.stats();
+    } catch (error) {
+      return { ok: false, reason: String(error?.message || error) };
+    }
+  });
+
   ipcMain.handle("mkd:build-stamp", () => {
     if (app.isPackaged) return null;
     try {

@@ -291,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "8a216f9c";
+window.__APP_V = "04f4bb75";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -17679,3 +17679,266 @@ document.addEventListener(
 window.addEventListener("focus", checkBuildFreshness);
 // 启动时也查一次：有可能是先 build 再点的启动器，但窗口复用了旧进程
 setTimeout(checkBuildFreshness, 1500);
+
+/* ==================== 合规筛查：OFAC / UFLPA / BIS ==================== */
+
+// 名单在主进程（4 万个主体，随包发货 452 KB，不联网）。查询要走 IPC 因而是异步的，
+// 但 preflightOutboxItem 是同步的、还会被队列每一行反复调用——所以照 emailProbe
+// 的做法：结果落在线索上，预检只读不查。
+//
+// 这块的红线和别处一样：**测不出就说测不出**。名单读不出来时绝不能静默返回
+// "没命中"——那会让用户以为查过了，实际根本没查，而这次是法律风险。
+
+function screeningReady() {
+  const b = mkdBridge();
+  return !!(b && typeof b.screenEntity === "function");
+}
+
+async function screenProspect(prospectId, quiet = false) {
+  const prospect = state.prospects.find((p) => p.id === prospectId);
+  if (!prospect || !prospect.company) return null;
+  if (!screeningReady()) {
+    if (!quiet) addLog("合规筛查只有桌面版能用（名单在主进程里）");
+    return null;
+  }
+
+  const res = await window.mkd.screenEntity(prospect.company);
+  if (!res || res.ok === false) {
+    if (!quiet) addLog(`合规名单读取失败，${prospect.company} **没有查过**：${res?.reason || "未知原因"}`);
+    return null;
+  }
+
+  state.prospects = state.prospects.map((p) =>
+    p.id === prospectId
+      ? {
+          ...p,
+          screening: {
+            at: new Date().toISOString(),
+            listBuiltAt: res.builtAt,
+            hit: !!res.hit,
+            match: res.match || "",
+            level: res.level || "",
+            matchedName: res.matchedName || "",
+            hits: res.hits || [],
+            candidates: res.candidates || []
+          }
+        }
+      : p
+  );
+
+  if (!quiet && res.hit) {
+    const what =
+      res.match === "exact"
+        ? `与名单主体「${res.matchedName}」归一化后完全一致`
+        : `与 ${res.candidates.length} 个名单主体名称相近（疑似，需人工确认）`;
+    addLog(`⚠️ 合规筛查命中：${prospect.company} ${what}。名单截至 ${res.builtAt}，重大交易前请到官方站点复核。`);
+  }
+  return res;
+}
+
+async function batchScreenProspects(ids) {
+  const targets = (ids || [])
+    .map((id) => state.prospects.find((p) => p.id === id))
+    .filter((p) => p && p.company && !p.screening);
+  if (!targets.length) {
+    addLog("没有需要筛查的线索（要有公司名、且还没查过）");
+    return;
+  }
+  if (!screeningReady()) {
+    addLog("合规筛查只有桌面版能用");
+    return;
+  }
+
+  runBegin("合规筛查", `准备查 ${targets.length} 家公司`);
+  let exact = 0;
+  let partial = 0;
+  for (let i = 0; i < targets.length; i += 1) {
+    if (!runIsActive()) break;
+    runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
+    const r = await screenProspect(targets[i].id, true);
+    if (r?.hit) (r.match === "exact" ? (exact += 1) : (partial += 1));
+  }
+  saveState();
+  render();
+  runDone(
+    exact || partial ? `命中 ${exact} 家、疑似 ${partial} 家` : `${targets.length} 家都不在名单上`,
+    exact ? "命中的已在发信队列里拦下，点开看命中哪条法律线" : ""
+  );
+  addLog(`合规筛查完成：查了 ${targets.length} 家，精确命中 ${exact} 家、疑似 ${partial} 家`);
+}
+
+// 误报一定会发生（同名、近名）。给一个留痕的推翻入口，和 F3 的人工核实同构。
+function overrideScreening(prospectId, reason) {
+  const prospect = state.prospects.find((p) => p.id === prospectId);
+  if (!prospect) return;
+  prospect.screeningOverride = {
+    at: new Date().toISOString(),
+    by: state.campaign?.senderName || "本机操作者",
+    reason: reason || "已人工确认不是同一主体"
+  };
+  addLog(
+    `已人工推翻 ${prospect.company} 的合规命中（理由：${prospect.screeningOverride.reason}）。` +
+      `此操作永久留痕，导出可见——合规责任在操作者。`
+  );
+  saveState();
+  render();
+}
+
+// 预检读取：只看已存下来的结果，不发起查询
+function screeningVerdict(prospect) {
+  const s = prospect?.screening;
+  if (!s || !s.hit) return null;
+  if (prospect.screeningOverride) return { level: "overridden", text: "合规命中已人工推翻（留痕可查）" };
+  if (s.match === "exact") {
+    const blocking = (s.hits || []).filter((h) => h.level === "block");
+    if (blocking.length) {
+      return {
+        level: "block",
+        text: `合规命中：${blocking.map((h) => h.label).join("、")}（名单主体「${s.matchedName}」）`
+      };
+    }
+    // 只有证券投资限制这类：不是贸易禁令，提示但不拦
+    return { level: "info", text: `名单命中但不影响商品贸易：${(s.hits || []).map((h) => h.label).join("、")}` };
+  }
+  return { level: "warn", text: `名称与 ${(s.candidates || []).length} 个受限主体相近，建议人工确认是否同一家` };
+}
+
+if (typeof preflightOutboxItem === "function") {
+  const __preflightBase = preflightOutboxItem;
+  preflightOutboxItem = function (item) {
+    const res = __preflightBase(item);
+    const prospect = state.prospects.find((p) => p.id === item.prospectId);
+    const v = screeningVerdict(prospect);
+    if (!v) return res;
+    if (v.level === "block") res.blockers.push(v.text);
+    else if (v.level !== "overridden") res.warnings.push(v.text);
+    return { ...res, ok: res.blockers.length === 0 };
+  };
+}
+
+// 入池体检时顺带筛一遍：合规问题越早发现越好，别等到要发信才拦
+if (typeof queueVet === "function") {
+  const __vetBase = queueVet;
+  queueVet = function (ids) {
+    const out = __vetBase(ids);
+    if (screeningReady()) {
+      Promise.resolve()
+        .then(() => batchScreenProspects(ids))
+        .catch((e) => console.error("[screening] 入池筛查失败", e));
+    }
+    return out;
+  };
+}
+
+/* ---------------------------- 合规筛查 UI ---------------------------- */
+
+const SCREEN_LEVEL_TEXT = { block: "必须停", warn: "待确认", info: "可放行", overridden: "已推翻" };
+
+function screeningPanelHtml(prospect) {
+  const s = prospect?.screening;
+  if (!s || !s.hit) return "";
+  const v = screeningVerdict(prospect);
+  const rows =
+    s.match === "exact"
+      ? (s.hits || []).map(
+          (h) => `
+        <li class="screen-hit is-${h.level}">
+          <span class="screen-tag">${escapeHtml(SCREEN_LEVEL_TEXT[h.level] || h.level)}</span>
+          <div>
+            <strong>${escapeHtml(h.label)}${h.program ? `　<code>${escapeHtml(h.program)}</code>` : ""}</strong>
+            <p>${escapeHtml(h.means)}</p>
+          </div>
+        </li>`
+        )
+      : (s.candidates || []).map(
+          (c) => `
+        <li class="screen-hit is-warn">
+          <span class="screen-tag">名称相近</span>
+          <div>
+            <strong>${escapeHtml(c.name)}</strong>
+            <p>${escapeHtml((c.hits || []).map((h) => h.label).join("、"))}</p>
+          </div>
+        </li>`
+        );
+
+  return `
+    <div class="screen-panel is-${v ? v.level : "info"}">
+      <div class="screen-head">
+        <strong>合规筛查${s.match === "exact" ? "命中" : "疑似命中"}</strong>
+        <span>${escapeHtml(
+          s.match === "exact" ? `归一化后与名单主体「${s.matchedName}」一致` : `与 ${(s.candidates || []).length} 个受限主体名称相近`
+        )}</span>
+      </div>
+      <ul class="screen-list">${rows.join("")}</ul>
+      <p class="screen-caveat">
+        名单截至 ${escapeHtml(s.listBuiltAt || "未知")}，是快照不是实时查询。
+        OFAC / BIS / UFLPA 持续变动，<strong>重大交易前请到官方站点复核</strong>。
+      </p>
+      ${
+        prospect.screeningOverride
+          ? `<p class="screen-override">已由 ${escapeHtml(prospect.screeningOverride.by)} 于 ${escapeHtml(
+              prospect.screeningOverride.at.slice(0, 10)
+            )} 人工推翻：${escapeHtml(prospect.screeningOverride.reason)}</p>`
+          : `<button type="button" class="btn-ghost screen-override-btn" data-mkd-screen-override="${escapeHtml(prospect.id)}">
+               我已确认不是同一家（留痕）
+             </button>`
+      }
+    </div>`;
+}
+
+// 潜客页顶部再加一个批量按钮
+if (typeof mountProspectNetActions === "function") {
+  const __actionsBase = mountProspectNetActions;
+  mountProspectNetActions = function () {
+    __actionsBase();
+    const wrap = document.getElementById("mkdNetActions");
+    if (!wrap || wrap.querySelector("[data-mkd-screen-batch]")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-ghost";
+    btn.setAttribute("data-mkd-screen-batch", "");
+    btn.title = "对照 OFAC / UFLPA / BIS 名单查一遍（本地名单，不联网）。命中的会在发信队列里被拦下。";
+    btn.textContent = "合规筛查";
+    wrap.appendChild(btn);
+  };
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!t) return;
+    if (t.closest("[data-mkd-screen-batch]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      batchScreenProspects((state.prospects || []).map((p) => p.id));
+      return;
+    }
+    const ov = t.closest("[data-mkd-screen-override]");
+    if (ov) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = ov.getAttribute("data-mkd-screen-override");
+      const p = state.prospects.find((x) => x.id === id);
+      mkdModal({
+        title: "人工推翻合规命中",
+        width: 560,
+        danger: true,
+        body: `
+          <p>你正在推翻对「<strong>${escapeHtml(p?.company || "")}</strong>」的合规命中。</p>
+          <p class="muted">同名、近名的误报确实存在。但如果确实是同一主体，与其交易的法律责任由你承担。
+          此操作永久留痕，数据导出中可见。</p>
+          <label><span>推翻理由（必填）</span>
+            <input id="mkdScreenReason" type="text" placeholder="例：同名不同家，已核对注册地与业务范围" /></label>`,
+        confirmText: "确认推翻",
+        onConfirm: () => {
+          const reason = (document.getElementById("mkdScreenReason")?.value || "").trim();
+          if (!reason) return false; // 不填理由不让过
+          overrideScreening(id, reason);
+          return true;
+        }
+      });
+    }
+  },
+  true
+);
