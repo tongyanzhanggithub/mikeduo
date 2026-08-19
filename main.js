@@ -13,6 +13,7 @@ const mailer = require("./electron/mailer");
 const customs = require("./electron/customs");
 const netprobe = require("./electron/netprobe");
 const screening = require("./electron/screening");
+const hscode = require("./electron/hscode");
 const updateFeed = require("./electron/update-feed");
 
 const APP_NAME = "觅客舵";
@@ -573,6 +574,26 @@ function registerIpc() {
   ipcMain.handle("mkd:screening-stats", () => {
     try {
       return screening.stats();
+    } catch (error) {
+      return { ok: false, reason: String(error?.message || error) };
+    }
+  });
+
+  /* --- HS 编码目录（本地，不联网） ---
+     AI 报出来的 HS 码从来没被校验过。模型给一个不存在的码，用户拿去查海关数据、
+     填报关单、跟客户对话，一路错到底而且没有一环会告诉他错了。 */
+  ipcMain.handle("mkd:hs-lookup", (_e, code) => {
+    try {
+      return hscode.lookup(code);
+    } catch (error) {
+      writeMainError("hscode", error);
+      return { ok: false, reason: String(error?.message || error) };
+    }
+  });
+
+  ipcMain.handle("mkd:hs-search", (_e, payload) => {
+    try {
+      return hscode.search(payload?.keyword, payload?.limit);
     } catch (error) {
       return { ok: false, reason: String(error?.message || error) };
     }

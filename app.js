@@ -291,7 +291,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "04f4bb75";
+window.__APP_V = "e8193ded";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -17942,3 +17942,223 @@ document.addEventListener(
   },
   true
 );
+
+/* ==================== HS 编码校验 ==================== */
+
+// 「AI 细化定位」会产出一个 HS 编码写进活动配置，但从来没人校验过它是否真实存在。
+// 这和我们花大力气清掉的「编造联系人」是同一类问题：**把模型的输出当事实用**。
+// 模型报一个不存在的码，用户拿去查海关数据、填报关单、跟客户对话，一路错到底，
+// 而且没有任何一环会告诉他错了。
+//
+// 目录 8,261 条随包发货（158 KB），不联网。
+
+function hsReady() {
+  const b = mkdBridge();
+  return !!(b && typeof b.hsLookup === "function");
+}
+
+async function verifyCampaignHs(quiet = false) {
+  const code = (state.campaign?.hsCode || "").trim();
+  if (!code) return null;
+  if (!hsReady()) return null;
+
+  const r = await window.mkd.hsLookup(code);
+  if (!r || r.ok === false) {
+    if (!quiet) addLog(`HS 目录读取失败，${code} **没有校验过**：${r?.reason || "未知原因"}`);
+    return null;
+  }
+
+  state.campaign.hsCheck = {
+    at: new Date().toISOString(),
+    listBuiltAt: r.builtAt,
+    queried: code,
+    valid: !!r.valid,
+    code: r.code || "",
+    text: r.text || "",
+    level: r.level || "",
+    specificEnough: !!r.specificEnough,
+    unit: r.unit || "",
+    path: r.path || [],
+    reason: r.reason || "",
+    fallback: r.fallback || null,
+    siblings: r.siblings || []
+  };
+
+  if (!quiet) {
+    if (r.valid) {
+      addLog(
+        `HS ${r.code} 校验通过：${r.text}（${r.level}）。目录层级 ${r.path.map((p) => p.code).join(" → ")}` +
+          (r.specificEnough ? "" : "。注意这只到" + r.level + "，报关要用到六位子目，还需要再细一级")
+      );
+    } else {
+      addLog(`⚠️ AI 报的 HS「${code}」在目录里查不到：${r.reason}`);
+    }
+  }
+  saveState();
+  render();
+  return r;
+}
+
+function hsPanelHtml() {
+  const c = state.campaign?.hsCheck;
+  if (!c) return "";
+  const tone = c.valid ? (c.specificEnough ? "ok" : "warn") : "bad";
+  const pathHtml = (c.path || [])
+    .map((p) => `<span class="hs-node"><code>${escapeHtml(p.code)}</code>${escapeHtml(p.text.slice(0, 46))}</span>`)
+    .join('<span class="hs-arrow">→</span>');
+
+  return `
+    <div class="hs-panel is-${tone}">
+      <div class="hs-head">
+        <span class="hs-badge">${c.valid ? (c.specificEnough ? "HS 有效" : "HS 有效但不够细") : "HS 查不到"}</span>
+        <strong>${escapeHtml(c.queried)}</strong>
+        ${c.valid ? `<span class="hs-text">${escapeHtml(c.text)}</span>` : ""}
+      </div>
+      ${c.valid ? `<div class="hs-path">${pathHtml}</div>` : `<p class="hs-reason">${escapeHtml(c.reason)}</p>`}
+      ${
+        !c.valid && c.fallback
+          ? `<p class="hs-fallback">最近的有效上级：<code>${escapeHtml(c.fallback.code)}</code> ${escapeHtml(
+              c.fallback.text.slice(0, 60)
+            )}</p>`
+          : ""
+      }
+      ${
+        (c.siblings || []).length
+          ? `<div class="hs-siblings"><span>同级可选：</span>${c.siblings
+              .slice(0, 8)
+              .map((s) => `<button type="button" data-mkd-hs-pick="${escapeHtml(s.code)}"><code>${escapeHtml(s.code)}</code>${escapeHtml(s.text.slice(0, 34))}</button>`)
+              .join("")}</div>`
+          : ""
+      }
+      <p class="hs-caveat">
+        HS 国际六位目录（截至 ${escapeHtml(c.listBuiltAt || "?")}）。各国在六位之后自行扩展（中国 8 位、美国 10 位），
+        <strong>报关以目的国税则和海关最终认定为准</strong>——这里只能告诉你这个码存不存在、是什么。
+      </p>
+      <div class="hs-actions">
+        <input id="mkdHsSearch" type="text" placeholder="按英文关键词找码，如 unmanned aircraft / spray" />
+        <button type="button" class="btn-ghost" data-mkd-hs-search>搜目录</button>
+      </div>
+      <div id="mkdHsResults" class="hs-results"></div>
+    </div>`;
+}
+
+async function runHsSearch() {
+  const box = document.getElementById("mkdHsResults");
+  const kw = (document.getElementById("mkdHsSearch")?.value || "").trim();
+  if (!box) return;
+  if (kw.length < 2) {
+    box.innerHTML = `<p class="hs-hint">输入至少两个字符</p>`;
+    return;
+  }
+  box.innerHTML = `<p class="hs-hint">搜索中…</p>`;
+  const r = await window.mkd.hsSearch(kw, 20);
+  if (!r?.ok) {
+    box.innerHTML = `<p class="hs-hint">搜索失败：${escapeHtml(r?.reason || "未知")}</p>`;
+    return;
+  }
+  if (!r.rows.length) {
+    box.innerHTML = `<p class="hs-hint">${escapeHtml(r.hint)}</p>`;
+    return;
+  }
+  box.innerHTML = r.rows
+    .map(
+      (x) =>
+        `<button type="button" class="hs-result" data-mkd-hs-pick="${escapeHtml(x.code)}">
+           <code>${escapeHtml(x.code)}</code><span>${escapeHtml(x.text)}</span>
+         </button>`
+    )
+    .join("");
+}
+
+function pickHsCode(code) {
+  state.campaign.hsCode = code;
+  addLog(`HS 编码改为 ${code}（你从目录里选的，不是模型给的）`);
+  saveState();
+  verifyCampaignHs(true).then(() => render());
+}
+
+// 细化定位跑完后自动校验一次
+if (typeof refineProductFocus === "function") {
+  const __refineBase = refineProductFocus;
+  refineProductFocus = async function (...args) {
+    const out = await __refineBase(...args);
+    try {
+      await verifyCampaignHs(false);
+    } catch (error) {
+      console.error("[hs] 校验失败", error);
+    }
+    return out;
+  };
+}
+
+function mountHsPanel() {
+  // 「AI 细化定位」这个按钮实际长在控制台首页（dashboardView），不是想当然的 focusView
+  // ——项目里没有 focusView 这个 id。挂到按钮所在的卡片下面，紧挨着产生它的动作。
+  const trigger = [...document.querySelectorAll("#dashboardView button")].find((b) =>
+    /细化定位/.test(b.textContent || "")
+  );
+  const view = trigger ? trigger.closest("section, .card, form") || document.getElementById("dashboardView")
+                       : document.getElementById("dashboardView");
+  if (!view) return;
+  const html = hsPanelHtml();
+  let box = document.getElementById("mkdHsBox");
+  if (!html) {
+    box?.remove();
+    return;
+  }
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "mkdHsBox";
+    view.appendChild(box);
+  }
+  // 搜索结果是异步填的，重渲染别冲掉
+  const keep = document.getElementById("mkdHsResults")?.innerHTML || "";
+  const kw = document.getElementById("mkdHsSearch")?.value || "";
+  box.innerHTML = html;
+  if (keep) {
+    const slot = document.getElementById("mkdHsResults");
+    if (slot) slot.innerHTML = keep;
+  }
+  if (kw) {
+    const input = document.getElementById("mkdHsSearch");
+    if (input) input.value = kw;
+  }
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!t) return;
+    if (t.closest("[data-mkd-hs-search]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      runHsSearch();
+      return;
+    }
+    const pick = t.closest("[data-mkd-hs-pick]");
+    if (pick) {
+      e.preventDefault();
+      e.stopPropagation();
+      pickHsCode(pick.getAttribute("data-mkd-hs-pick"));
+    }
+  },
+  true
+);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target && e.target.id === "mkdHsSearch") {
+    e.preventDefault();
+    runHsSearch();
+  }
+});
+
+const __netBaseRender5 = render;
+render = function () {
+  __netBaseRender5();
+  try {
+    mountHsPanel();
+  } catch (error) {
+    console.error("[hs] 面板挂载失败", error);
+  }
+};

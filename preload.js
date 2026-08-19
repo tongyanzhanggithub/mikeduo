@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld("mkd", {
   screenEntity: (name) => ipcRenderer.invoke("mkd:screen-entity", name),
   screeningStats: () => ipcRenderer.invoke("mkd:screening-stats"),
 
+  // HS 编码目录：校验 AI 报出来的码是不是真的存在
+  hsLookup: (code) => ipcRenderer.invoke("mkd:hs-lookup", code),
+  hsSearch: (keyword, limit) => ipcRenderer.invoke("mkd:hs-search", { keyword, limit }),
+
   // 本地海关提单库：只查不导（整库导出等于给再分发开通道）
   customsAppend: (records) => ipcRenderer.invoke("mkd:customs-append", records),
   customsStats: () => ipcRenderer.invoke("mkd:customs-stats"),
