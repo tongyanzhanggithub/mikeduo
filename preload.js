@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld("mkd", {
   verifyEmail: (email, opts) => ipcRenderer.invoke("mkd:verify-email", { email, ...(opts || {}) }),
   fetchPage: (url) => ipcRenderer.invoke("mkd:fetch-page", url),
   netprobeReset: () => ipcRenderer.invoke("mkd:netprobe-reset"),
+  buildStamp: () => ipcRenderer.invoke("mkd:build-stamp"),
 
   // 本地海关提单库：只查不导（整库导出等于给再分发开通道）
   customsAppend: (records) => ipcRenderer.invoke("mkd:customs-append", records),

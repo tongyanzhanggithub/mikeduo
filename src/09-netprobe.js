@@ -1660,3 +1660,59 @@ render = function () {
 // 一个都不会出现，要等用户随手点一下触发重渲染才冒出来。新用户第一眼恰恰最需要
 // 「发出第一封信」，所以这里必须自己再渲染一次。
 render();
+
+/* ==================== 开发时：源码已重建但窗口还是旧的 ==================== */
+
+// 真实踩过的坑：改完 src/*.js、跑了 build，但**开着的那个窗口还是旧的**——
+// 它在启动那一刻就把 app.js 读进内存了，之后磁盘怎么变都与它无关。
+// 于是对着旧界面查一个已经修好的问题，怎么查都查不通。
+//
+// index.html 里的缓存哨兵抓不到这种情况：页面和脚本是同一时刻一起加载的，
+// 二者自洽。哨兵只能发现「页面新脚本旧」，发现不了「两个都旧」。
+//
+// 只在开发时生效：打包版的 buildStamp() 恒返回 null，装机用户永远看不到。
+
+let staleBannerShown = false;
+
+async function checkBuildFreshness() {
+  const b = mkdBridge();
+  if (!b || typeof b.buildStamp !== "function" || staleBannerShown) return;
+  const onDisk = await b.buildStamp().catch(() => null);
+  if (!onDisk || onDisk === window.__APP_V) return;
+
+  staleBannerShown = true;
+  const bar = document.createElement("div");
+  bar.className = "mkd-stale-build";
+  bar.innerHTML = `
+    <span>源码已重新构建（磁盘 <code>${escapeHtml(onDisk)}</code> ≠ 窗口 <code>${escapeHtml(
+    String(window.__APP_V || "?")
+  )}</code>）。你现在看到的还是旧界面。</span>
+    <button type="button" data-mkd-reload>刷新生效</button>
+    <button type="button" class="ghost" data-mkd-stale-dismiss>知道了</button>`;
+  document.body.appendChild(bar);
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!t) return;
+    if (t.closest("[data-mkd-reload]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      location.reload();
+      return;
+    }
+    if (t.closest("[data-mkd-stale-dismiss]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.querySelector(".mkd-stale-build")?.remove();
+    }
+  },
+  true
+);
+
+// 切去编辑器改完代码、再切回来，正是该提醒的那一刻
+window.addEventListener("focus", checkBuildFreshness);
+// 启动时也查一次：有可能是先 build 再点的启动器，但窗口复用了旧进程
+setTimeout(checkBuildFreshness, 1500);

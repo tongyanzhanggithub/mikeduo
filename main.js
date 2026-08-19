@@ -542,6 +542,34 @@ function registerIpc() {
 
   ipcMain.handle("mkd:fetch-page", (_e, url) => throttled(() => netprobe.fetchPage(url)));
 
+  /* --- 磁盘上的构建版本 ---
+     开发时的真实痛点：改完 src/*.js 跑了 build，但**开着的那个窗口还是旧的**——
+     它在启动那一刻就把 app.js 读进内存了，之后磁盘怎么变都与它无关。
+
+     index.html 里的缓存哨兵抓不到这种情况：页面和脚本是同一时刻一起加载的，
+     二者自洽，哨兵只能发现"页面新脚本旧"，发现不了"两个都旧"。
+     所以由主进程去读磁盘上的真实版本戳，交给渲染层自己比对。
+
+     打包版永远返回 null：安装目录里的文件不会变，查了也是白查。 */
+  //  版本戳不在文件开头（实测在 ~10.4KB 处，前面是全局错误捕获那一段），
+  //  所以必须读全文——只读前几 KB 会永远返回 null，检测静默失效。
+  //  按 mtime+size 做缓存：窗口每次获得焦点都会问一次，没必要反复读 650KB。
+  let buildStampCache = { key: "", stamp: null };
+  ipcMain.handle("mkd:build-stamp", () => {
+    if (app.isPackaged) return null;
+    try {
+      const file = path.join(__dirname, "app.js");
+      const st = fs.statSync(file);
+      const key = `${st.mtimeMs}:${st.size}`;
+      if (buildStampCache.key === key) return buildStampCache.stamp;
+      const m = /__APP_V\s*=\s*"([a-f0-9]+)"/.exec(fs.readFileSync(file, "utf8"));
+      buildStampCache = { key, stamp: m ? m[1] : null };
+      return buildStampCache.stamp;
+    } catch {
+      return null; // 读不到就当没这回事，绝不因此打扰用户
+    }
+  });
+
   ipcMain.handle("mkd:netprobe-reset", () => {
     netprobe.resetProbeState();
     return { ok: true };

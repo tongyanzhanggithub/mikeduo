@@ -1,24 +1,24 @@
 ' ============================================================
-'  MiKeDuo - DEV launcher (unlocked / VIP tier)
+'  MiKeDuo - TRIAL launcher (what a paying customer sees BEFORE buying)
 '
-'  Same as the normal silent launcher, but sets MKD_DEV_TIER=pro
-'  so the app runs as if activated. Use this while debugging the
-'  business logic: the trial build hard-disables the AI engine
-'  (aiEnabled() returns false), so most of the pipeline never runs.
+'  Identical to the dev launcher except it does NOT set MKD_DEV_TIER,
+'  so the app runs as an unactivated trial. Use this to check the
+'  things only a trial user ever sees:
 '
-'  This only works on an UNPACKAGED build. main.js ignores
-'  MKD_DEV_TIER when app.isPackaged is true, so a customer running
-'  the installed .exe cannot unlock anything with it.
+'    - the 20-lead cap and the locked-row state
+'    - the upgrade wall and its three buttons
+'    - the cloud-model section rendered as locked
+'    - the trial watermark line in exported CSV files
 '
-'  Set to basic / pro / coach to debug a different tier.
-'  Use 启动觅客舵-试用版.vbs to see what a trial user actually sees.
+'  Those are exactly the parts that are easy to break and impossible
+'  to notice from the dev launcher, because there everything is unlocked.
 '
 '  ASCII only on purpose: .vbs is read with the OEM/ANSI codepage,
 '  so non-ASCII text here can get mis-decoded on some machines.
 ' ============================================================
 Option Explicit
 
-Dim fso, sh, env, base, electronExe
+Dim fso, sh, base, electronExe
 
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
@@ -33,10 +33,6 @@ If Not fso.FileExists(electronExe) Then
          "Run 'npm install' in:" & vbCrLf & base, 48, "MiKeDuo"
   WScript.Quit 1
 End If
-
-' Process-scoped only: does not touch the user or system environment.
-Set env = sh.Environment("PROCESS")
-env("MKD_DEV_TIER") = "pro"
 
 ' Rebuild src\*.js -> app.js. Hidden window (0), wait for it (True).
 On Error Resume Next

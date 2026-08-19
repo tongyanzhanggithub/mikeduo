@@ -9030,3 +9030,54 @@ body.dark .ai-model-note.is-ok { color: #86efac; }
 body.dark .scope-note {
   color: var(--muted);
 }
+
+/* ---------- 开发时的"构建已更新"提示条（打包版看不到） ---------- */
+
+.mkd-stale-build {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(760px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.mkd-stale-build code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mkd-stale-build span { flex: 1; min-width: 0; }
+
+.mkd-stale-build button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 0;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mkd-stale-build button.ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #cbd5e1;
+  font-weight: 500;
+}
