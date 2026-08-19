@@ -6,7 +6,7 @@
 
 数据不出本机 · AI 找客户写信认意图 · 人只做审批和谈单
 
-![平台](https://img.shields.io/badge/平台-Windows%20x64-2563eb) ![形态](https://img.shields.io/badge/形态-Electron%20桌面应用-0f9f8f) ![授权](https://img.shields.io/badge/授权-买断制%20·%20离线激活-16845f) ![测试](https://img.shields.io/badge/自动化测试-111%20项-16845f)
+![平台](https://img.shields.io/badge/平台-Windows%20x64-2563eb) ![形态](https://img.shields.io/badge/形态-Electron%20桌面应用-0f9f8f) ![授权](https://img.shields.io/badge/授权-买断制%20·%20离线激活-16845f) ![测试](https://img.shields.io/badge/自动化测试-177%20项-16845f)
 
 </div>
 
@@ -84,6 +84,7 @@ CRM 六阶段推进 → 报价单 → 成交
 - 粘贴解析（官网/邮箱/CSV）
 - 找相似客户
 - 周期自动补量
+- **公共部门货物采购官库**（4,433 位，本地）
 
 </td><td width="33%" valign="top">
 
@@ -93,6 +94,7 @@ CRM 六阶段推进 → 报价单 → 成交
 - 公司名→官网批量解析
 - 邮箱验证与来源徽章
 - 具体产品聚焦（术语/HS/画像）
+- **HS 编码本地校验**（8,261 条目录，验模型报的码真伪）
 - 产品级买家画像
 - 四大出口品类模板
 
@@ -105,6 +107,7 @@ CRM 六阶段推进 → 报价单 → 成交
 - 按市场选渠道（WhatsApp/Telegram/Zalo）
 - 邮件+WhatsApp 接力或协同
 - 发送预检三色徽章
+- **合规筛查**（OFAC/UFLPA/BIS 本地名单，命中即拦）
 - 批量审批发送
 - 按市场时区算发送窗口
 
@@ -203,7 +206,7 @@ CRM 六阶段推进 → 报价单 → 成交
 |---|---|---|
 | **F1** | **离线激活码** | Ed25519 非对称签名，**全程不联网**。机器码 = CPU ID + 主板序列号 + 系统盘卷序列号 → SHA-256 前 16 位。激活信息用 Electron `safeStorage` 加密写盘；文件损坏或被改则静默回退试用，不崩溃 |
 | **F2** | **试用模式** | 线索池**存量**硬上限 20 条，7 条入池路径统一走 `admitProspects` 一个闸门；导出加水印；云端大模型区锁定态展示（不隐藏）；激活后角标/水印/AI 区**三联动**即时解锁，不用重启 |
-| **F3** | **未验证邮箱强制拦截** | 见上文铁律 1，独立 `sendGuard` 模块 + 19 项单测 |
+| **F3** | **未验证邮箱强制拦截** | 见上文铁律 1，独立 `sendGuard` 模块 + 21 项单测 |
 | **F4** | **诊断日志与错误兜底** | 主进程/渲染/unhandledrejection 全捕获；错误页第一句先说"你的数据是安全的"；200 条操作环形缓冲；邮箱打码、电话留国家码+末两位、**零邮件正文**；文件 <2MB |
 | **F5** | **自动更新** | electron-updater + GitHub Releases，顶栏蓝点非阻断；激活签发超 365 天提示续费但**不影响使用** |
 | **F6** | **新手引导对齐课程** | 五步与课程同构，横向步骤条可折叠；第 4 步主按钮是「**先发一封给自己**」——走真实发送链路完成自发自收闭环 |
@@ -405,21 +408,26 @@ node build.mjs
 
 把 `src/*.js` 按文件名顺序拼成 `app.js`，并算一个 8 位版本戳同步写入三处（`window.__APP_V`、`index.html` 的 `?v=`、缓存哨兵）。版本戳的哈希**同时覆盖 JS、CSS 和品牌资源**，所以只改样式也能可靠刷新缓存。
 
-自动化验收共 **111 项**，全绿：
+自动化验收共 **177 项**，14 个套件全绿：
 
 | 命令 | 项数 | 覆盖 |
 |---|---|---|
-| `node tools/test-send-guard.mjs` | 21 | 邮箱验证状态判定（含候选 pattern、人工核实只对被核实地址生效）、试用容量闸门、欧盟识别、退订元素检测、预热起算、诊断脱敏、环形缓冲 |
-| `node tools/test-license.mjs` | 10 | 跨机验证失败、篡改失效、三档位、粘贴脏数据自愈、别人的私钥签不出能过验的码、base32 可逆 |
-| `node tools/test-parse.mjs` | 11 | AI 联网返回的公司列表解析：引文标记 `[1]` 不被误当结果、`max_tokens` 截断后逐个救回完整对象、字符串里的括号与转义引号 |
-| `node tools/test-netprobe.mjs` | 19 | 官网抓邮箱与事实、robots 判定、F3 判定优先级（探测结果压过来源可信度）、行为分支（测不到 ≠ 没打开）、校准不误伤自己的产品词 |
-| `node tools/test-import.mjs` | 11 | 粘贴导入：两段式裸域名、Google `domain › path` 整页粘贴、`report.pdf` 与整句散文不被误判、四种失败分型文案 |
-| `npm run test:customs` | 13 | 本地提单库导入、字段映射、去重、检索 |
+| `node tools/test-netprobe.mjs` | 29 | 官网抓邮箱与事实、robots 判定、F3 判定优先级（探测结果压过来源可信度）、行为分支（测不到 ≠ 没打开）、校准不误伤自己的产品词 |
+| `node tools/test-send-guard.mjs` | 21 | 邮箱验证状态判定、试用容量闸门、欧盟识别、退订元素检测、预热起算、诊断脱敏、环形缓冲 |
 | `npm run test:mail` | 19 | 内置 SMTP/IMAP：连接诊断、退信 DSN 地址提取、收信解析 |
-| `npm run test:desktop` | 7 | 真 Electron 下的机器码采集、safeStorage 可用性、加密落盘与回读、篡改回退、跨机读不出、备份 14 份滚动 |
+| `node tools/test-screening.mjs` | 15 | 制裁名单归一化匹配（少个逗号仍命中）、CMIC 不是贸易禁令、三条法律线分别说后果、正常客户零误伤 |
+| `npm run test:customs` | 13 | 本地提单库导入、字段映射、去重、检索 |
+| `node tools/test-tenders.mjs` | 13 | 采购官库；**前四条测的是诚实性不是功能**——必须否认自己是标讯、必须给数据截止日 |
+| `node tools/test-parse.mjs` | 11 | AI 联网返回解析：引文标记 `[1]` 不被误当结果、截断后逐个救回完整对象 |
+| `node tools/test-import.mjs` | 11 | 粘贴导入：两段式裸域名、整页粘贴、误判防护、四种失败分型 |
+| `node tools/test-hscode.mjs` | 11 | HS 校验：模型各种写法、三级层级、"前几位对后几位编的"要定位到有效上级 |
+| `node tools/test-license.mjs` | 10 | 跨机验证失败、篡改失效、三档位、别人的私钥签不出能过验的码 |
+| `node tools/test-build-stamp.mjs` | 8 | 构建过期检测：版本戳不在前 4096 字节，读取不得截断 |
+| `node tools/test-update-gate.mjs` | 7 | 占位符更新源不得带进发布版 |
+| `npm run test:desktop` | 7 | 真 Electron：机器码、safeStorage 加密落盘与回读、篡改回退、备份滚动 |
+| `node tools/test-source-hygiene.mjs` | 2 | 来源卫生 |
 
-前四个套件用 `node:vm` 把**真源码**放进沙箱跑（`src/0-brand-edition.js`、`src/04-analytics-discovery.js` 等），
-不复制一份逻辑来测——复制出来的逻辑测不出真实现的 bug。
+多数套件用 `node:vm` 把**真源码**放进沙箱跑，不复制一份逻辑来测——复制出来的逻辑测不出真实现的 bug。
 
 > `test-parse.mjs` 与 `test-import.mjs` 在编写过程中当场各抓出一个真漏洞：
 > 引文标记 `[1]` 被当成合法公司列表、裸域名 `acme.com` 一个都扫不到。
