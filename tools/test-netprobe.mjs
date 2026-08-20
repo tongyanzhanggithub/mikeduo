@@ -353,4 +353,24 @@ check("渲染层对空壳站说的是「我们抓不到」而不是「没有公�
   assert.match(branch, /手动打开|Hunter/);
 });
 
+/* -------------------- 电话判定：一串数字不等于电话 -------------------- */
+
+check("日期和编号不能被当成电话号码", () => {
+  // 覆盖率实测时真抓到过这两个假号码，把「拿到电话」的比例从 81.3% 虚高到 87.5%。
+  // 不实测就会拿着虚高的数字去写销售页。
+  const { looksLikeRealPhone } = np._internals;
+  assert.equal(looksLikeRealPhone("20250909"), false, "这是日期 2025-09-09");
+  assert.equal(looksLikeRealPhone("00512512"), false, "这是编号");
+  assert.equal(looksLikeRealPhone("11111111"), false, "全同一个数字是占位符");
+  assert.equal(looksLikeRealPhone("0000000000"), false);
+  assert.equal(looksLikeRealPhone("1234567"), false, "7 位裸数字无分隔符，不可信");
+});
+
+check("真实号码的各种写法都要认——宁可漏也不能瞎认，但不能连真的都漏", () => {
+  const { looksLikeRealPhone } = np._internals;
+  for (const p of ["+254795555318", "+8615002096837", "+971 52 209 2367", "(011) 234-5678", "0782853853", "551141788099"]) {
+    assert.equal(looksLikeRealPhone(p), true, p + " 应当被认作电话");
+  }
+});
+
 console.log(`\n${passed} 项全部通过`);

@@ -228,13 +228,42 @@ function extractEmails(html, sourceUrl) {
 // 爱把 WhatsApp 号单独列出来，漏掉它等于把最容易触达的渠道丢了。
 const PHONE_LABEL = "tel|telephone|phone|mobile|mob|cell|whats\\s?app|wa|contact";
 
+// 一串数字长得像电话，不代表它是电话。实测抓到过两个假的：
+//   00512512   ——「联系我们」附近的一串编号
+//   20250909   ——日期 2025-09-09，被当成 8 位号码
+// 覆盖率实测时这类误报会直接虚高「拿到电话」的比例，所以宁可漏也不能瞎认。
+function looksLikeRealPhone(raw) {
+  const s = String(raw);
+  const digits = s.replace(/\D/g, "");
+  const n = digits.length;
+  if (n < 7 || n > 15) return false;
+
+  // YYYYMMDD：19xx/20xx 开头且月日合法 → 是日期不是号码
+  if (n === 8 && /^(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/.test(digits)) return false;
+
+  // 全是同一个数字（1111111、0000000）基本是占位符。刻意不用反向引用：
+  // 这个项目被转义序列坑过三次，其中一次就是生成时反向引用变成了控制字符。
+  if (digits.split("").every((c) => c === digits[0])) return false;
+
+  // 带 + 号的国际格式：最可信，直接放行
+  if (s.trim().startsWith("+") || digits.startsWith("00")) {
+    // 但 00 开头的国际前缀后面至少还得有 8 位，否则像编号
+    return !digits.startsWith("00") || n >= 10;
+  }
+
+  // 没有 + 号时，要求原文里有分隔符（空格/横杠/括号/点）——
+  // 真实电话几乎总是分段写的；连成一串的裸数字多半是编号或日期
+  if (/[\s().\-]/.test(s.trim())) return true;
+
+  // 连成一串又没有 + 号：只接受 9 位以上（多数国家的本地号长度）
+  return n >= 9;
+}
+
 function extractPhones(html) {
   const out = new Set();
   const add = (raw) => {
-    const digits = String(raw).replace(/[^\d+]/g, "");
-    // 7 位是最短的可拨号码；20 位以上基本是把订单号错当电话
-    const n = digits.replace(/\D/g, "").length;
-    if (n >= 7 && n <= 15) out.add(digits);
+    if (!looksLikeRealPhone(raw)) return;
+    out.add(String(raw).replace(/[^\d+]/g, ""));
   };
   for (const m of html.matchAll(
     new RegExp(`(?:tel:|(?:${PHONE_LABEL})[^0-9+]{0,12})(\\+?[\\d][\\d\\s().-]{6,20}\\d)`, "gi")
@@ -855,6 +884,7 @@ module.exports = {
     rankEmail,
     robotsAllows,
     resolveFailCode,
+    looksLikeRealPhone,
     detectRenderMode,
     visibleTextLength
   }
