@@ -7,3 +7,5 @@ npm-debug.log*
 
 # 签发私钥：泄露 = 任何人都能自己造激活码。绝不入库、绝不外发。
 tools/keys/
+coverage-result.csv
+sites*.txt
