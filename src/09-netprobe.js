@@ -24,7 +24,16 @@ function applyHarvest(prospectId, harvest) {
   if (!prospect || !harvest || !harvest.ok) return false;
 
   const emails = harvest.emails || [];
-  if (!emails.length && !harvest.phones?.length && !Object.keys(harvest.social || {}).length) return false;
+  if (!emails.length && !harvest.phones?.length && !Object.keys(harvest.social || {}).length) {
+    // 什么都没抓到也要留痕：尤其要记下「这是个空壳站」，
+    // 否则界面无从区分「对方没公示」和「我们抓不到」。
+    state.prospects = state.prospects.map((p) =>
+      p.id === prospectId
+        ? { ...p, harvestedAt: new Date().toISOString(), harvestRender: harvest.renderMode || "", harvestRenderWhy: harvest.renderWhy || "" }
+        : p
+    );
+    return false;
+  }
 
   const candidates = emails.map((e) => ({
     email: e.email,
@@ -62,6 +71,8 @@ function applyHarvest(prospectId, harvest) {
       if (harvest.social.linkedin && !next.linkedin) next.linkedin = harvest.social.linkedin;
     }
     next.harvestedAt = new Date().toISOString();
+    next.harvestRender = harvest.renderMode || "";
+    next.harvestRenderWhy = harvest.renderWhy || "";
     next.harvestPages = (harvest.visited || []).length;
     return next;
   });
@@ -102,6 +113,15 @@ async function harvestProspectSite(prospectId, quiet = false) {
           p2.contactSourceUrl || p2.phoneSourceUrl || res.site
         }）。这是企业自己公示的，不是推测。`
       );
+    } else if (res.renderMode === "spa") {
+      // 关键的一句话之差：以前一律说「没有公示邮箱」，用户会以为是对方没写。
+      // 实际上这个站的内容是浏览器跑完 JS 才出现的，我们抓到的是空壳——
+      // 是**我们抓不到**，不是对方没有。说错了方向，用户就会把好线索误删。
+      addLog(
+        `${prospect.company} 的官网是动态渲染的${res.renderWhy ? `（${res.renderWhy}）` : ""}，` +
+          `内容要浏览器跑完脚本才出现，我们抓到的是空壳——**这不代表对方没公示联系方式**。` +
+          `建议手动打开 ${prospect.website} 看一眼，或者改用 Hunter / 邮箱查找 Webhook。`
+      );
     } else {
       addLog(
         `${prospect.company} 官网抓了 ${pages} 页，没有公示邮箱或号码${
@@ -138,14 +158,27 @@ async function batchHarvestSites(ids) {
     const r = await harvestProspectSite(targets[i].id, true);
     if (r === "website") hit += 1;
   }
+  // 空壳站要单独统计。混在"没抓到"里报，用户会以为这批公司都没公示联系方式，
+  // 顺手把好线索删了——实际只是我们抓不到。
+  const spa = targets.filter((t) => state.prospects.find((p) => p.id === t.id)?.harvestRender === "spa").length;
   saveState();
   render();
   const rate = Math.round((hit / targets.length) * 100);
   runDone(
-    `抓到 ${hit}/${targets.length} 家（${rate}%）`,
-    hit ? "全部来自企业官网公示，可点开出处核对" : "这批公司官网上既没有公示邮箱，也没有号码"
+    `抓到 ${hit}/${targets.length} 家（${rate}%）${spa ? ` · ${spa} 家抓不了` : ""}`,
+    hit
+      ? "全部来自企业官网公示，可点开出处核对"
+      : spa
+      ? `${spa} 家是动态渲染站，我们抓不到——别当成对方没公示`
+      : "这批公司官网上既没有公示邮箱，也没有号码"
   );
-  addLog(`官网抓取完成：${targets.length} 家里拿到 ${hit} 家真实联系方式（邮箱或 WhatsApp 号，${rate}%），零编造`);
+  addLog(
+    `官网抓取完成：${targets.length} 家里拿到 ${hit} 家真实联系方式（邮箱或 WhatsApp 号，${rate}%），零编造。` +
+      (spa
+        ? `另有 ${spa} 家官网是动态渲染的，内容要跑完 JS 才出现，我们抓到的是空壳——` +
+          `**这 ${spa} 家不等于没有联系方式**，别据此删掉，可手动打开看或改用 Hunter。`
+        : "")
+  );
 }
 
 /* ================================ 入池体检 ================================

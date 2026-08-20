@@ -298,4 +298,59 @@ check("https 解析不到但 http 是别的错——说明域名在，只是没�
   );
 });
 
+/* ------------------- 动态渲染站：抓不到 ≠ 对方没公示 ------------------- */
+
+check("React / Next / Wix 的空壳页判为 spa", () => {
+  const { detectRenderMode } = np._internals;
+  const cases = [
+    ['<html><body><div id="root"></div><script src=a></script><script src=b></script><script src=c></script></body></html>', "React 空壳"],
+    ['<html><body><div id="__next"></div><script id="__NEXT_DATA__">{}</script></body></html>', "Next.js"],
+    ['<html><head><script src="https://static.parastorage.com/x.js"></script></head><body><div id="root"></div></body></html>', "Wix"]
+  ];
+  for (const [html, name] of cases) {
+    assert.equal(detectRenderMode(html).mode, "spa", `${name} 应判为 spa`);
+  }
+});
+
+check("服务端渲染过的 React 不能被误判成空壳", () => {
+  // 有框架特征但正文很足 —— 说明内容已经在 HTML 里了，照常抓即可。
+  // 误判成 spa 会让我们对着一个本来抓得到的站说"我们抓不到"。
+  const html =
+    '<html><body><div id="root" data-reactroot><h1>Acme</h1><p>' +
+    "We supply industrial pumps and spare parts to distributors worldwide. ".repeat(14) +
+    "</p></div></body></html>";
+  assert.equal(np._internals.detectRenderMode(html).mode, "static");
+});
+
+check("普通静态站判为 static", () => {
+  const html =
+    "<html><body><h1>Gulf Agri</h1><p>" +
+    "We import agricultural drone components across the GCC region. ".repeat(12) +
+    '</p><a href="mailto:info@gulfagri.ae">m</a></body></html>';
+  assert.equal(np._internals.detectRenderMode(html).mode, "static");
+});
+
+check("正文长度统计排除 script/style，只算真正看得见的字", () => {
+  const { visibleTextLength } = np._internals;
+  const noisy = "<script>" + "x".repeat(5000) + "</script><style>" + "y".repeat(5000) + "</style><p>hello</p>";
+  assert.equal(visibleTextLength(noisy) < 20, true, "脚本和样式被算进正文了");
+});
+
+check("harvestSite 的返回里带 renderMode——界面靠它决定说哪句话", () => {
+  // 抓不到东西时，说「对方没公示」还是「我们抓不到」，对用户意义完全不同：
+  // 前者会让他把好线索删掉。
+  const src = readFileSync(join(root, "electron", "netprobe.js"), "utf8");
+  const ret = src.slice(src.lastIndexOf("const list = [...emails"), src.length);
+  assert.match(ret, /renderMode: render\.mode/);
+  assert.match(ret, /renderWhy: render\.why/);
+});
+
+check("渲染层对空壳站说的是「我们抓不到」而不是「没有公示」", () => {
+  const ui = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const branch = ui.slice(ui.indexOf('res.renderMode === "spa"'), ui.indexOf('res.renderMode === "spa"') + 900);
+  assert.match(branch, /动态渲染/);
+  assert.match(branch, /不代表对方没公示|不等于没有/);
+  assert.match(branch, /手动打开|Hunter/);
+});
+
 console.log(`\n${passed} 项全部通过`);

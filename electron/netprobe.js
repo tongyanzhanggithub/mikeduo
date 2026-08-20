@@ -315,6 +315,53 @@ function extractFacts(html, sourceUrl) {
   return facts.slice(0, 10);
 }
 
+// 判断这一页是不是「JS 渲染出来的空壳」。
+//
+// 为什么必须判：我们只取 HTML 不执行 JS。用 React/Vue/Next/Wix 做的官网，
+// 联系方式是浏览器跑完脚本才出现的，我们抓到的是一个空 div。
+// 而现在的提示是「抓了 N 页，没有公示邮箱」——**用户会以为是对方没写，
+// 其实是我们抓不到**。这违反了项目一直坚持的「测不出就说测不出」。
+//
+// 判据分两类：框架特征（准）、以及正文占比过低（兜底）。
+const SPA_MARKERS = [
+  { re: /<div[^>]+id=["'](root|app|__next|__nuxt|q-app)["'][^>]*>\s*<\/div>/i, name: "空的挂载容器" },
+  { re: /__NEXT_DATA__/, name: "Next.js" },
+  { re: /window\.__NUXT__/, name: "Nuxt" },
+  { re: /window\.__INITIAL_STATE__/, name: "前端状态注入" },
+  { re: /ng-version=|<app-root/i, name: "Angular" },
+  { re: /data-reactroot|react(-dom)?\.production/i, name: "React" },
+  { re: /static\.parastorage\.com|_wixCssModules|wixstatic/i, name: "Wix" },
+  { re: /cdn\.shopify\.com|Shopify\.shop/i, name: "Shopify" },
+  { re: /squarespace\.com\/universal|Static\.SQUARESPACE_CONTEXT/i, name: "Squarespace" }
+];
+
+function visibleTextLength(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim().length;
+}
+
+function detectRenderMode(html) {
+  const src = String(html || "");
+  const hits = SPA_MARKERS.filter((m) => m.re.test(src)).map((m) => m.name);
+  const textLen = visibleTextLength(src);
+  // 这里刻意用字符类而不是词边界：用脚本生成代码时，词边界的转义序列极易
+  // 在中转中被解释成控制字符，正则从此永远匹配不上、也不报错。已栽过两次。
+  const scripts = (src.match(/<script[\s>]/gi) || []).length;
+
+  // 框架特征 + 正文很少 → 基本可以断定是空壳
+  if (hits.length && textLen < 600) return { mode: "spa", why: hits.slice(0, 2).join(" / "), textLen };
+  // 没有框架特征，但正文极少而脚本很多 → 也当成疑似
+  if (textLen < 250 && scripts >= 3) return { mode: "spa", why: `正文只有 ${textLen} 字、却有 ${scripts} 段脚本`, textLen };
+  // 有框架特征但正文够多：说明是服务端渲染过的，照常抓
+  if (hits.length) return { mode: "static", why: `${hits[0]}（已服务端渲染）`, textLen };
+  return { mode: "static", why: "", textLen };
+}
+
 // 从页面里挑出最可能有联系方式的内链
 const CONTACT_HINT =
   /(contact|about|impressum|kontakt|contacto|contatti|nous-contacter|team|company|imprint|legal|support|reach-us|get-in-touch|联系|关于)/i;
@@ -379,6 +426,8 @@ async function harvestSite(website, opts = {}) {
   let social = {};
   let whatsappPhone = "";
   let blockedByRobots = 0;
+  // 首页的渲染模式最有代表性（内页常常本来就短），decided 保证只认第一次
+  let render = { mode: "static", why: "", textLen: 0, decided: false };
 
   const visit = async (url) => {
     let u;
@@ -451,6 +500,10 @@ async function harvestSite(website, opts = {}) {
     whatsappPhone,
     social,
     facts,
+    // 这一页是不是 JS 渲染出来的空壳。抓不到东西时，这个字段决定我们该说
+    // 「对方没公示」还是「我们抓不到」——两句话对用户的意义完全不同。
+    renderMode: render.mode,
+    renderWhy: render.why,
     visited,
     blockedByRobots
   };
@@ -801,6 +854,8 @@ module.exports = {
     contactLinks,
     rankEmail,
     robotsAllows,
-    resolveFailCode
+    resolveFailCode,
+    detectRenderMode,
+    visibleTextLength
   }
 };
