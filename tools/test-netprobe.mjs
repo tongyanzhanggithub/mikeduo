@@ -431,4 +431,35 @@ check("MX 查询走多解析器，且区分「确实没有」和「查不到」"
   assert.match(vf, /mxq\.definitelyNone && mxq\.trusted/, "必须两个条件都满足才敢判 invalid");
 });
 
+/* -------------------- 成本透明：不许悄悄改回「零配置」 -------------------- */
+
+check("上手向导必须把「哪些免费、哪些要钱」摊开写", () => {
+  // 「零配置」这个说法只对第一封信成立。粘贴搜索结果 + 抓官网 + 自己的 SMTP
+  // 确实一个 key 都不用；但要跑量、要 AI 写信就得配 key。
+  // 含糊过去的结果是用户走完五步之后突然撞上收费墙。
+  const ui = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const fn = ui.slice(ui.indexOf("function costRealityHtml"), ui.indexOf("function mountFirstSendPanel"));
+  assert.equal(fn.length > 200, true, "成本表被删了");
+  assert.match(fn, /免费/);
+  assert.match(fn, /¥14\/月/, "AI 的实际月成本必须写出来");
+  assert.match(fn, /deepseek\.com/, "要给申请链接，不能只说「去配一个 key」");
+  assert.match(fn, /serpapi\.com/);
+});
+
+check("必须写明没有「内置额度」，并说清为什么", () => {
+  // 内置我们自己的 key 是可解包的，等于把 key 送人。这个理由要讲出来，
+  // 否则用户只会觉得我们抠。
+  const ui = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const fn = ui.slice(ui.indexOf("function costRealityHtml"), ui.indexOf("function mountFirstSendPanel"));
+  assert.match(fn, /内置额度/);
+  assert.match(fn, /安装包|asar|送给所有人/);
+});
+
+check("向导副标题如实说明「这五步不用 key」，不宣称整个产品零配置", () => {
+  const ui = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const sub = ui.slice(ui.indexOf('class="firstsend-sub"'), ui.indexOf('class="firstsend-sub"') + 260);
+  assert.match(sub, /这五步/, "范围必须限定在这五步，不能泛化成整个产品");
+  assert.match(sub, /跑量|AI 写信/, "必须点出后面要配 key 的场景");
+});
+
 console.log(`\n${passed} 项全部通过`);

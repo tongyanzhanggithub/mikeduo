@@ -307,7 +307,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "3207dac5";
+window.__APP_V = "9e1e6a2b";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -17289,7 +17289,7 @@ function firstSendPanelHtml() {
       <div class="firstsend-head">
         <span class="firstsend-title">发出第一封信</span>
         <span class="firstsend-count">${doneN} / ${steps.length}</span>
-        <span class="firstsend-sub">正常情况下十分钟能走完。卡在哪一步，这里会直接告诉你该点什么。</span>
+        <span class="firstsend-sub">这五步<strong>不用配任何 API key</strong>，正常十分钟走完。要跑量、要 AI 写信才需要配 key，费用见下面。</span>
       </div>
       <ol class="firstsend-list">
         ${steps
@@ -17311,6 +17311,66 @@ function firstSendPanelHtml() {
           )
           .join("")}
       </ol>
+      ${costRealityHtml()}
+    </div>`;
+}
+
+// 「零配置」这个说法一直没敢兑现，因为它只对第一封信成立：
+// 粘贴搜索结果 + 抓官网 + 配自己的 SMTP，确实一个 key 都不用。
+// 但要跑量、要 AI 写信，就必须配 key——用户会在走完五步之后突然撞上这堵墙。
+//
+// 与其含糊其辞，不如把两段式现实和真实价钱摊开写。这也是产品一贯的做法：
+// 该说"测不出"就说测不出，该说"要花钱"就说要花钱。
+function costRealityHtml() {
+  const aiOk = typeof aiEnabled === "function" ? aiEnabled() : false;
+  const serpOk = !!(state.settings?.serpApiKey || "").trim();
+  const mark = (ok) => (ok ? "已配" : "未配");
+
+  return `
+    <div class="cost-reality">
+      <div class="cost-head">
+        <strong>这五步不花钱。往后要花多少，先说清楚</strong>
+        <span>都是你直接付给服务商，我们不经手、不抽成，用多少花多少。</span>
+      </div>
+      <table class="cost-table">
+        <tr>
+          <td>粘贴搜索结果找公司</td>
+          <td class="cost-free">免费</td>
+          <td>手动搜、整页粘，不用任何 key</td>
+        </tr>
+        <tr>
+          <td>抓官网拿真实联系方式</td>
+          <td class="cost-free">免费</td>
+          <td>实测 20 家里 15 家能拿到邮箱或电话</td>
+        </tr>
+        <tr>
+          <td>合规筛查 · HS 校验 · 域名体检</td>
+          <td class="cost-free">免费</td>
+          <td>名单随包内置，本机跑，不联网</td>
+        </tr>
+        <tr class="cost-sep">
+          <td>AI 细化定位 / 写开发信 / 读回复</td>
+          <td class="cost-paid">≈ ¥14/月</td>
+          <td>
+            配一个 DeepSeek key 就够日常量。
+            <button type="button" class="cost-link" data-mkd-open="https://platform.deepseek.com/api_keys">去申请</button>
+            <span class="cost-state is-${aiOk ? "on" : "off"}">${mark(aiOk)}</span>
+          </td>
+        </tr>
+        <tr>
+          <td>一键起量（自动搜、不用手动粘）</td>
+          <td class="cost-paid">按次</td>
+          <td>
+            SerpAPI 每月 100 次免费，之后约 $50/月起。不配也能用，只是要自己粘。
+            <button type="button" class="cost-link" data-mkd-open="https://serpapi.com/manage-api-key">去申请</button>
+            <span class="cost-state is-${serpOk ? "on" : "off"}">${mark(serpOk)}</span>
+          </td>
+        </tr>
+      </table>
+      <p class="cost-note">
+        没有「内置额度」这种东西——软件是买断的、跑在你自己电脑上，
+        我们没法替你垫接口费，也不想把 key 打包进安装包（那等于把 key 送给所有人）。
+      </p>
     </div>`;
 }
 
@@ -17347,6 +17407,16 @@ function followupBadgeHtml(prospectId) {
 document.addEventListener(
   "click",
   (e) => {
+    const link = e.target instanceof Element ? e.target.closest("[data-mkd-open]") : null;
+    if (link) {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = link.getAttribute("data-mkd-open");
+      const b = mkdBridge();
+      if (b && typeof b.openExternal === "function") b.openExternal(url);
+      else window.open(url, "_blank");
+      return;
+    }
     const go = e.target instanceof Element ? e.target.closest("[data-mkd-goto]") : null;
     if (!go) return;
     e.preventDefault();

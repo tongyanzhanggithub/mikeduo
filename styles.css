@@ -9349,3 +9349,71 @@ body.dark .scope-note {
   .screen-stale.is-alert { background: #450a0a; border-color: #991b1b; color: #fecaca; }
   .screen-stale.is-unknown { background: #1e293b; border-color: #334155; color: #cbd5e1; }
 }
+
+/* ---------- 成本透明表（把「零配置」换成「先说清要花多少」） ---------- */
+
+.cost-reality {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.16);
+}
+
+.cost-head strong { display: block; font-size: 12.5px; color: #0f172a; }
+.cost-head span { display: block; margin-top: 2px; font-size: 11.5px; color: #475569; }
+
+.cost-table { width: 100%; border-collapse: collapse; margin-top: 9px; }
+
+.cost-table td {
+  padding: 6px 8px 6px 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #475569;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+}
+
+.cost-table td:first-child { color: #0f172a; white-space: nowrap; padding-right: 14px; }
+.cost-table td:nth-child(2) { white-space: nowrap; font-weight: 700; padding-right: 14px; }
+.cost-table tr:last-child td { border-bottom: 0; }
+.cost-table tr.cost-sep td { border-top: 1px solid rgba(15, 23, 42, 0.14); padding-top: 9px; }
+
+.cost-free { color: #15803d; }
+.cost-paid { color: #b45309; }
+
+.cost-link {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cost-state {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.cost-state.is-on { background: #dcfce7; color: #15803d; }
+.cost-state.is-off { background: #e2e8f0; color: #64748b; }
+
+.cost-note {
+  margin: 9px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #64748b;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cost-head strong { color: #e2e8f0; }
+  .cost-head span, .cost-table td, .cost-note { color: #94a3b8; }
+  .cost-table td:first-child { color: #e2e8f0; }
+  .cost-table td { border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .cost-state.is-on { background: #14532d; color: #86efac; }
+  .cost-state.is-off { background: #334155; color: #cbd5e1; }
+}
