@@ -518,4 +518,81 @@ check("文档要如实说明打开率天然不准", () => {
   assert.match(doc, /趋势和排序|不适合当精确指标/);
 });
 
+/* ---------------- 开发信引用：要具体，且跟着市场语种走 ---------------- */
+
+check("抓具体事实：代理品牌 / 资质认证 / 经营年头 / 服务区域 / 近期动态", () => {
+  // 只取 title + meta + h1-h3 的话，抓到的都是「我们是一家专业的XX公司」，
+  // 引用它反而暴露你是群发的。要抓只有认真看过这个站才知道的东西。
+  const html =
+    "<title>Gulf Agri Supply LLC</title>" +
+    "<p>Established in 2004, we are an authorized distributor of John Deere parts in the Middle East.</p>" +
+    "<p>Our facility is ISO 9001:2015 certified and all products carry CE marking and RoHS compliance.</p>" +
+    "<p>We have been serving UAE, Saudi Arabia, Oman and Kuwait for over 20 years of experience.</p>" +
+    "<ul><li>New warehouse opened in 2024</li></ul>";
+  const kinds = extractFacts(html, "u").map((f) => f.kind);
+  for (const k of ["代理品牌", "资质认证", "经营年头", "服务区域", "近期动态"]) {
+    assert.equal(kinds.includes(k), true, `没抓到「${k}」`);
+  }
+  // 具体的要排在泛泛的前面
+  assert.equal(kinds.indexOf("代理品牌") < kinds.indexOf("标题"), true);
+});
+
+check("贪婪匹配不能吃过头——品牌名不许跨句", () => {
+  const html = "<p>We are an authorized distributor of John Deere parts in the Middle East. Our facility is ISO 9001 certified.</p>";
+  const brand = extractFacts(html, "u").find((f) => f.kind === "代理品牌");
+  assert.equal(/ISO|facility/.test(brand.text), false, "吃到下一句去了：" + brand.text);
+});
+
+check("版权行不能被当成近期动态", () => {
+  const html = "<li>Copyright 2026 Gulf Agri. All rights reserved.</li>";
+  assert.equal(extractFacts(html, "u").some((f) => f.kind === "近期动态"), false);
+});
+
+/* ---- 以下测渲染层：哪条值得引用、以及引用句的语种 ---- */
+
+const uiSrc = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+const factCtx = createContext({ console, marketLanguage: (m) => ({ Spain: "es", UAE: "ar", France: "fr" }[m] || "en") });
+runInContext(
+  uiSrc.slice(uiSrc.indexOf("const FACT_WORTH_QUOTING"), uiSrc.indexOf("if (typeof buildEmailSequence")) +
+    String.fromCharCode(10) +
+    "globalThis.FACT_WORTH_QUOTING = FACT_WORTH_QUOTING;",
+  factCtx
+);
+
+check("只有泛泛的标题/描述时，宁可不引用", () => {
+  // 塞一句「贵司是专业供应商」比不说更糟——对方一眼看出是模板。
+  const weak = [
+    { kind: "标题", text: "ABC Trading Company Limited", sourceUrl: "u" },
+    { kind: "描述", text: "We are a professional supplier of quality products.", sourceUrl: "u" }
+  ];
+  assert.equal(factCtx.pickFact({ siteFacts: weak }), null);
+  assert.equal(factCtx.factOpener({ market: "United States", siteFacts: weak }), null);
+  assert.equal(factCtx.factOpener({ market: "United States", siteFacts: [] }), null);
+});
+
+check("引用句跟着市场语种走，不再是写死的英文", () => {
+  // 原来非英语市场会出现：开头是当地语言、中间突然夹一句英文，比不个性化更糟。
+  const facts = [{ kind: "代理品牌", text: "authorized distributor of John Deere", sourceUrl: "u" }];
+  const en = factCtx.factOpener({ market: "United States", siteFacts: facts });
+  const es = factCtx.factOpener({ market: "Spain", siteFacts: facts });
+  const ar = factCtx.factOpener({ market: "UAE", siteFacts: facts });
+  assert.equal(en.lang, "en");
+  assert.equal(es.lang, "es");
+  assert.equal(ar.lang, "ar");
+  assert.match(en.line, /I read on your website/);
+  assert.match(es.line, /Vi en su sitio web/);
+  assert.equal(/I read on your website/.test(es.line), false, "西语市场里夹了英文");
+  assert.equal(/I read on your website/.test(ar.line), false, "阿语市场里夹了英文");
+});
+
+check("八个非英语市场都要有对应模板，缺一个就不该插入而不是退回英文", () => {
+  const uiTxt = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const tpl = uiTxt.slice(uiTxt.indexOf("FACT_QUOTE_TEMPLATES"), uiTxt.indexOf("// 生成一句引用"));
+  for (const lang of ["en", "es", "pt", "fr", "ru", "vi", "id", "tr", "ar"]) {
+    assert.equal(tpl.includes(lang + ": (q)"), true, "缺 " + lang + " 模板");
+  }
+  const fn = uiTxt.slice(uiTxt.indexOf("function factOpener"), uiTxt.indexOf("if (typeof buildEmailSequence"));
+  assert.match(fn, /if \(!tpl\) return null;/, "语种没覆盖时应当不插入，而不是退回英文");
+});
+
 console.log(`\n${passed} 项全部通过`);

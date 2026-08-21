@@ -341,7 +341,72 @@ function extractFacts(html, sourceUrl) {
     add("小标题", t);
   }
 
-  return facts.slice(0, 10);
+  // ── 以下是"具体到能当开场白"的事实 ────────────────────────────
+  // 上面那几类多半是「我们是一家专业的XX公司」这种泛泛介绍，写进开发信没有
+  // 说服力——对方一眼就知道你是群发的。真正有用的是只有认真看过这个站才知道
+  // 的东西：他代理哪个牌子、拿了什么认证、开了多少年、最近在忙什么。
+  //
+  // 红线不变：**只摘录原文，不概括不推断**。每条都能在页面上原样找到。
+  const text = clean(html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " "));
+
+  // 成立年份 / 经营年数：开场提这个最不像模板
+  for (const m of text.matchAll(
+    /(?:^|\W)((?:established|founded|since|operating since|in business since)\s+(?:in\s+)?(?:19|20)\d{2}|(?:over|more than)\s+\d{1,2}\s+years?(?:\s+of)?\s+(?:experience|in\s+(?:the\s+)?(?:business|industry|trade|market)))/gi
+  )) {
+    add("经营年头", m[1]);
+    break;
+  }
+
+  // 资质认证：外贸客户对这个敏感，提到能立刻拉近距离
+  const certs = new Set();
+  for (const m of text.matchAll(
+    /(?:^|\W)(ISO\s?\d{4,5}(?::\d{4})?|CE\s+(?:certified|marking|mark)|RoHS|REACH|FDA\s+(?:registered|approved)|UL\s+listed|SGS|TÜV|GMP|HACCP|BRC|HALAL|KOSHER|IATF\s?\d{4,5})(?:$|\W)/gi
+  )) {
+    certs.add(m[1].replace(/\s+/g, " ").trim());
+    if (certs.size >= 4) break;
+  }
+  if (certs.size) add("资质认证", [...certs].join("、"));
+
+  // 代理/授权的品牌：说明他的供应链位置，也是最具体的一条
+  for (const m of text.matchAll(
+    /(?:^|\W)((?:authoriz|authoris)ed\s+(?:distributor|dealer|reseller|agent|partner)\s+(?:of|for)\s+[A-Z][A-Za-z0-9&\- ]{2,34}|official\s+(?:distributor|dealer|partner)\s+(?:of|for)\s+[A-Z][A-Za-z0-9&\- ]{2,34})/g
+  )) {
+    add("代理品牌", m[1]);
+    break;
+  }
+
+  // 服务的国家/区域：能直接呼应"我们也做这个市场"
+  for (const m of text.matchAll(
+    /(?:^|\W)((?:serving|serves|supplying|supplies|exports?\s+to|distributes?\s+(?:in|across|throughout))\s+[A-Z][A-Za-z,&\- ]{4,60}?)(?=\s+(?:for|with|since|and\s+more|\.|,\s*[a-z])|[.;]|$)/gi
+  )) {
+    add("服务区域", m[1]);
+    break;
+  }
+
+  // 近期动态：带年份的新闻/展会条目。只取最近的一条，旧新闻提了反而尴尬
+  const news = [];
+  for (const m of html.matchAll(
+    /<(?:h[2-4]|a|li)[^>]*>([^<]{16,120}(?:20(?:2[3-9]|3\d))[^<]{0,80})<\/(?:h[2-4]|a|li)>/gi
+  )) {
+    const t = clean(m[1]);
+    if (/copyright|©|all rights reserved|privacy|cookie/i.test(t)) continue;
+    news.push(t);
+  }
+  if (news.length) {
+    // 年份最大的那条最可能是"最近"
+    news.sort((a, b) => {
+      const ya = Math.max(...(a.match(/20\d{2}/g) || ["0"]).map(Number));
+      const yb = Math.max(...(b.match(/20\d{2}/g) || ["0"]).map(Number));
+      return yb - ya;
+    });
+    add("近期动态", news[0]);
+  }
+
+  // 具体到能当开场白的排前面：泛泛的标题/描述留着兜底，但不该被优先引用
+  const RANK = { 代理品牌: 0, 资质认证: 1, 近期动态: 2, 经营年头: 3, 服务区域: 4, 描述: 5, 小标题: 6, 标题: 7 };
+  facts.sort((a, b) => (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9));
+
+  return facts.slice(0, 12);
 }
 
 // 判断这一页是不是「JS 渲染出来的空壳」。

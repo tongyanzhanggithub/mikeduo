@@ -307,7 +307,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "a3186e32";
+window.__APP_V = "e0bde20b";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -16901,23 +16901,53 @@ render = function () {
 // 红线不变：只摘录官网原话，不概括、不推断、不润色成"我们研究了贵司业务"。
 // 每次引用都记下用了哪条事实、出处是哪个 URL，用户点开就能核对。
 
+// 哪条事实值得写进开发信。
+//
+// 「我们是一家专业的XX公司」这种话谁都能写，引用它反而暴露你是群发的。
+// 真正有说服力的是只有认真看过这个站才知道的东西：他代理哪个牌子、拿了什么
+// 认证、开了多少年。抓取端已经按这个顺序排好了，这里只是再确认一次口径，
+// 并且**宁可不引用也不用泛泛的那几类**。
+const FACT_WORTH_QUOTING = ["代理品牌", "资质认证", "近期动态", "经营年头", "服务区域"];
+
 function pickFact(prospect) {
   const facts = prospect?.siteFacts || [];
   if (!facts.length) return null;
-  // 描述 > 小标题 > 标题：描述是企业自己写的一句话介绍，最适合引用
-  const order = { 描述: 0, 小标题: 1, 标题: 2 };
-  return [...facts].sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9))[0];
+  const good = facts.filter((f) => FACT_WORTH_QUOTING.includes(f.kind));
+  if (good.length) {
+    const order = Object.fromEntries(FACT_WORTH_QUOTING.map((k, i) => [k, i]));
+    return [...good].sort((a, b) => order[a.kind] - order[b.kind])[0];
+  }
+  // 只剩标题/描述这类泛泛的：不引用。塞一句"贵司是专业供应商"比不说更糟。
+  return null;
 }
+
+// 引用句要跟着市场语种走。
+//
+// 原来这里写死一句英文，非英语市场（西/葡/阿/法/俄/越/印尼/土）走的是
+// localIntro 分支——结果那封信开头是当地语言、中间突然夹一句英文，
+// 比不做个性化还糟。现在按 marketLanguage() 出对应语种，语种不支持就不插。
+const FACT_QUOTE_TEMPLATES = {
+  en: (q) => `I read on your website that "${q}", which is exactly why I am reaching out.`,
+  es: (q) => `Vi en su sitio web que "${q}", y por eso les escribo.`,
+  pt: (q) => `Vi no site de vocês que "${q}", e é exatamente por isso que escrevo.`,
+  fr: (q) => `J'ai lu sur votre site que "${q}", et c'est précisément pour cela que je vous écris.`,
+  ru: (q) => `На вашем сайте я прочитал, что "${q}" — именно поэтому и пишу вам.`,
+  vi: (q) => `Tôi đọc trên website của quý công ty rằng "${q}", và đó chính là lý do tôi liên hệ.`,
+  id: (q) => `Saya membaca di situs web Anda bahwa "${q}", dan itulah alasan saya menghubungi Anda.`,
+  tr: (q) => `Web sitenizde "${q}" ifadesini okudum; size tam da bu nedenle yazıyorum.`,
+  ar: (q) => `قرأت على موقعكم أن "${q}"، ولهذا السبب أكتب إليكم.`
+};
 
 // 生成一句引用。刻意写得克制——夸张的"我深入研究了贵司"反而假。
 function factOpener(prospect) {
   const fact = pickFact(prospect);
   if (!fact) return null;
   const quote = fact.text.length > 160 ? `${fact.text.slice(0, 157)}...` : fact.text;
-  return {
-    line: `I read on your website that "${quote}"`,
-    fact
-  };
+  const lang = typeof marketLanguage === "function" ? marketLanguage(prospect?.market) || "en" : "en";
+  const tpl = FACT_QUOTE_TEMPLATES[lang];
+  // 语种没覆盖到就不插——夹一句看不懂的话，比不个性化更糟
+  if (!tpl) return null;
+  return { line: tpl(quote), lang, fact };
 }
 
 if (typeof buildEmailSequence === "function") {
@@ -16933,9 +16963,9 @@ if (typeof buildEmailSequence === "function") {
     // 插在称呼之后、正文之前
     const at = lines.findIndex((l) => /^(Dear|Hi|Hello)/i.test(l.trim()));
     const insertAt = at >= 0 ? at + 1 : 0;
-    lines.splice(insertAt, 0, "", `${opener.line}, which is exactly why I am reaching out.`);
+    lines.splice(insertAt, 0, "", opener.line);
     first.body = lines.join("\n");
-    first.factUsed = { text: opener.fact.text, sourceUrl: opener.fact.sourceUrl };
+    first.factUsed = { text: opener.fact.text, kind: opener.fact.kind, lang: opener.lang, sourceUrl: opener.fact.sourceUrl };
     return seq;
   };
 }
