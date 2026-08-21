@@ -9434,3 +9434,20 @@ body.dark .scope-note {
 @media (prefers-color-scheme: dark) {
   .mkd-tracking-card .tracking-how code { background: rgba(255, 255, 255, 0.1); }
 }
+
+/* ---------- 合规命中汇总（潜客页顶部） ---------- */
+.screen-summary {
+  font-size: 12.5px;
+  color: #0f172a;
+  margin: 0 0 8px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+}
+.screen-one { margin-bottom: 8px; }
+.screen-one > strong { display: block; font-size: 13px; margin-bottom: 4px; color: #0f172a; }
+@media (prefers-color-scheme: dark) {
+  .screen-summary { background: #450a0a; border-color: #991b1b; color: #fecaca; }
+  .screen-one > strong { color: #e2e8f0; }
+}

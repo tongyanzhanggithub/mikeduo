@@ -73,7 +73,6 @@ function applyHarvest(prospectId, harvest) {
     next.harvestedAt = new Date().toISOString();
     next.harvestRender = harvest.renderMode || "";
     next.harvestRenderWhy = harvest.renderWhy || "";
-    next.harvestPages = (harvest.visited || []).length;
     return next;
   });
   // 只抓到电话/WhatsApp 也算有收获。以前这里只看邮箱，于是号码已经存进去了，
@@ -108,10 +107,17 @@ async function harvestProspectSite(prospectId, quiet = false) {
       const parts = [];
       if (p2.email) parts.push(`邮箱 ${p2.email}`);
       if (p2.phone) parts.push(`${res.whatsappPhone ? "WhatsApp" : "电话"} ${p2.phone}`);
+      // 邮箱和电话分别报各自的出处。原来只报一个 URL，而电话常常来自
+      // 另一个页面（wa.me 链接多在页脚），混着报等于溯源不准。
+      const src = [];
+      if (p2.email && p2.contactSourceUrl) src.push(`邮箱出处 ${p2.contactSourceUrl}`);
+      if (p2.phone && p2.phoneSourceUrl && p2.phoneSourceUrl !== p2.contactSourceUrl) {
+        src.push(`${p2.phoneSource || "号码"}出处 ${p2.phoneSourceUrl}`);
+      }
       addLog(
-        `官网抓到真实联系方式：${prospect.company} → ${parts.join("、")}（抓了 ${pages} 页，出处 ${
-          p2.contactSourceUrl || p2.phoneSourceUrl || res.site
-        }）。这是企业自己公示的，不是推测。`
+        `官网抓到真实联系方式：${prospect.company} → ${parts.join("、")}` +
+          `（抓了 ${pages} 页${res.renderWhy ? ` · ${res.renderWhy}` : ""}，${src.join("；") || `出处 ${res.site}`}）。` +
+          `这是企业自己公示的，不是推测。`
       );
     } else if (res.renderMode === "spa") {
       // 关键的一句话之差：以前一律说「没有公示邮箱」，用户会以为是对方没写。
@@ -124,7 +130,9 @@ async function harvestProspectSite(prospectId, quiet = false) {
       );
     } else {
       addLog(
-        `${prospect.company} 官网抓了 ${pages} 页，没有公示邮箱或号码${
+        `${prospect.company} 官网抓了 ${pages} 页（${(res.visited || [])
+          .map((v) => new URL(v.url).pathname || "/")
+          .join(" ")}），没有公示邮箱或号码${
           res.blockedByRobots ? `（${res.blockedByRobots} 页被 robots.txt 拒绝）` : ""
         }`
       );
@@ -892,16 +900,6 @@ function mountProspectNetActions() {
   header.appendChild(wrap);
 }
 
-const __netBaseRender = render;
-render = function () {
-  __netBaseRender();
-  try {
-    mountEscortPanel();
-    mountProspectNetActions();
-  } catch (error) {
-    console.error("[netprobe] 挂载失败", error);
-  }
-};
 
 /* ==================== ⑦ 开发信引用官网上的真实事实 ==================== */
 
@@ -1131,6 +1129,7 @@ function autoPauseColdSequences() {
     if (b.action !== "pause" || p.sequencePaused) return;
     p.sequencePaused = true;
     p.sequencePausedReason = b.title;
+    p.sequencePausedAt = new Date().toISOString();
     (state.outbox || [])
       .filter((o) => o.prospectId === p.id && o.status === "待发送")
       .forEach((o) => {
@@ -1446,6 +1445,18 @@ function mountFirstSendPanel() {
 /* ==================== 跟进分支展示 ==================== */
 
 function followupBadgeHtml(prospectId) {
+  const prospect = state.prospects.find((p) => p.id === prospectId);
+  // 序列被自动暂停时，必须显示是为什么。走查发现 sequencePausedReason 一直
+  // 只写不读——序列悄悄停了，用户既看不到状态也不知道原因，只会以为软件坏了。
+  if (prospect?.sequencePaused) {
+    const days = prospect.sequencePausedAt
+      ? Math.floor((Date.now() - new Date(prospect.sequencePausedAt).getTime()) / 86400000)
+      : null;
+    return `<span class="followup-badge is-stop" title="${escapeHtml(
+      `${prospect.sequencePausedReason || "连续未打开"}${days !== null ? `，已暂停 ${days} 天` : ""}` +
+        `——一直发给不看信的地址会拖累送达率。想继续跟就手动恢复。`
+    )}">已暂停 · ${escapeHtml(prospect.sequencePausedReason || "连续未打开")}</span>`;
+  }
   const b = followupBranch(prospectId);
   const tone =
     b.action === "stop" ? "stop" : b.action === "escalate" ? "hot" : b.action === "pause" ? "cold" : "neutral";
@@ -1541,15 +1552,6 @@ document.addEventListener(
   true
 );
 
-const __netBaseRender2 = render;
-render = function () {
-  __netBaseRender2();
-  try {
-    mountFirstSendPanel();
-  } catch (error) {
-    console.error("[netprobe] 首封向导挂载失败", error);
-  }
-};
 
 /* ==================== ⑧ 定位闭环校准 ==================== */
 
@@ -1754,16 +1756,6 @@ document.addEventListener(
   true
 );
 
-const __netBaseRender3 = render;
-render = function () {
-  __netBaseRender3();
-  try {
-    mountCalibrationPanel();
-    mountTrackingSetting();
-  } catch (error) {
-    console.error("[netprobe] 校准/追踪挂载失败", error);
-  }
-};
 
 /* ==================== 把上面几件事真正接进流程 ==================== */
 
@@ -1813,15 +1805,6 @@ function mountFollowupBadges() {
   });
 }
 
-const __netBaseRender4 = render;
-render = function () {
-  __netBaseRender4();
-  try {
-    mountFollowupBadges();
-  } catch (error) {
-    console.error("[netprobe] 跟进徽章挂载失败", error);
-  }
-};
 
 // 首屏补渲染：07 末尾那次 render() 跑的时候，本文件还没被拼进来，上面四层包装
 // 挂的六个面板（陪跑、潜客网络动作、发出第一封信、定位校准、追踪设置、跟进徽章）
@@ -2381,15 +2364,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-const __netBaseRender5 = render;
-render = function () {
-  __netBaseRender5();
-  try {
-    mountHsPanel();
-  } catch (error) {
-    console.error("[hs] 面板挂载失败", error);
-  }
-};
 
 /* ==================== 公共部门货物采购官（独立线索源） ==================== */
 
@@ -2583,12 +2557,61 @@ document.addEventListener(
   true
 );
 
-const __netBaseRender6 = render;
+// 走查发现：screeningPanelHtml 写好了却从没被调用过——拦截生效了，
+// 但用户点不开看「命中的是哪条法律线」。同类的另外三个面板都有挂载函数，
+// 唯独这个漏了。挂在潜客页：命中的线索集中列出来，一眼看得到该处理谁。
+function mountScreeningPanel() {
+  const view = document.getElementById("prospectsView");
+  if (!view) return;
+  const hits = (state.prospects || []).filter((p) => p.screening?.hit);
+  let box = document.getElementById("mkdScreenBox");
+  if (!hits.length) {
+    box?.remove();
+    return;
+  }
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "mkdScreenBox";
+    view.insertBefore(box, view.firstChild);
+  }
+  const blocking = hits.filter((p) => screeningVerdict(p)?.level === "block").length;
+  box.innerHTML =
+    `<div class="screen-summary">合规筛查命中 ${hits.length} 家` +
+    (blocking ? `，其中 <strong>${blocking} 家已在发信队列里被拦下</strong>` : "（均不影响商品贸易）") +
+    `</div>` +
+    hits.map((p) => `<div class="screen-one"><strong>${escapeHtml(p.company)}</strong>${screeningPanelHtml(p)}</div>`).join("");
+}
+
+/* ==================== 统一挂载：一层包装，逐个隔离 ====================
+ *
+ * 这里原来是六层 `render = function(){ __base(); try{ mountX() }catch{} }`。
+ * 层数多了有两个坏处：读代码要顺着六层才知道一次渲染都干了什么；
+ * 更要命的是**任何一层在 try 外面抛错，它上面的所有层都不再执行**——
+ * 而这种失败是静默的，界面只是少了几块，不报任何错。
+ *
+ * 改成一张表 + 一层包装。每个挂载单独 try，一个坏了不影响其余。
+ */
+const MKD_MOUNTS = [
+  ["护航面板", mountEscortPanel],
+  ["潜客页批量按钮", mountProspectNetActions],
+  ["首封向导", mountFirstSendPanel],
+  ["定位校准", mountCalibrationPanel],
+  ["追踪设置", mountTrackingSetting],
+  ["跟进分支徽章", mountFollowupBadges],
+  ["合规命中面板", mountScreeningPanel],
+  ["HS 校验面板", mountHsPanel],
+  ["采购官库", mountTendersPanel]
+];
+
+const __mkdRenderBase = render;
 render = function () {
-  __netBaseRender6();
-  try {
-    mountTendersPanel();
-  } catch (error) {
-    console.error("[tenders] 面板挂载失败", error);
+  __mkdRenderBase();
+  for (const [name, mount] of MKD_MOUNTS) {
+    try {
+      mount();
+    } catch (error) {
+      // 一个面板挂不上，不该把其余的一起带走
+      console.error(`[mkd] 挂载「${name}」失败`, error);
+    }
   }
 };

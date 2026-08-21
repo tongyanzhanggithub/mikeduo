@@ -30,7 +30,8 @@ const sandbox = {
       .filter(Boolean),
   stripProtocol: (v) => String(v).replace(/^https?:\/\//, "").replace(/\/$/, ""),
   scoreProspect: () => 70,
-  capitalize: (v) => String(v || "").replace(/\w/g, (c) => c.toUpperCase()),
+  // 按空格分词大写首字母：不用词边界，避免转义序列在生成时被吃成控制字符
+  capitalize: (v) => String(v || "").split(" ").map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(" "),
   clamp: (v, a, b) => Math.min(b, Math.max(a, v)),
   dateOffset: () => "2026-08-05",
   escapeHtml: (v) => String(v),

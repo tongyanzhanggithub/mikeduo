@@ -1515,7 +1515,15 @@ ${prospect.customsProduct ? `海关记录里的货物描述: ${prospect.customsP
     prospect.websiteStatus = aiWebSearchCapable() ? "联网核实" : "AI 推测";
     prospect.websiteConfidence = Number(data?.confidence) || (aiWebSearchCapable() ? 80 : 55);
     if (data?.note) prospect.websiteNote = String(data.note).slice(0, 120);
-    if (!quiet) addLog(`${prospect.company} → ${domain}（${prospect.websiteStatus}）`);
+    // 置信度和依据要一起报出来。走查发现这两个字段一直只写不读——
+    // 「AI 推测」和「联网核实」在界面上长得一样，用户没法判断该不该信。
+    if (!quiet) {
+      addLog(
+        `${prospect.company} → ${domain}（${prospect.websiteStatus} · 置信度 ${prospect.websiteConfidence}%` +
+          `${prospect.websiteNote ? ` · 依据：${prospect.websiteNote}` : ""}）` +
+          `${prospect.websiteSource === "claude" ? "。这是模型推测的，没有联网核实过，发信前建议先抓一次官网确认。" : ""}`
+      );
+    }
     saveState();
     render();
     return prospect.websiteSource;

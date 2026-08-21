@@ -2034,7 +2034,14 @@ function renderCommerceChrome() {
 const __mkdBaseRender = render;
 render = function () {
   __mkdBaseRender();
-  renderCommerceChrome();
+  // 单独 try：renderCommerceChrome 一旦抛错，会顺着调用链把后续所有
+  // 挂载层一起带走（它们的 try 只包着自己的 mount 调用，包不住这里）。
+  // 而那种失败是静默的——界面只是少了几块，不报任何错。
+  try {
+    renderCommerceChrome();
+  } catch (error) {
+    console.error("[mkd] 商业化外壳渲染失败", error);
+  }
 };
 
 /* ============================================================================
