@@ -128,6 +128,29 @@ for (const [label, dir] of CTRL_DIRS) {
 }
 if (!n7) ok("无");
 
+section("⑧ admitProspects 之后必须同步写回 state.prospects");
+
+// 这是个真不变量，而且很容易被后来的人破坏：
+// admitProspects 内部会触发入池体检（抓官网核实公司是否存在 + 合规筛查），
+// 那段是 fire-and-forget 的微任务。它依赖调用方在**同一个同步块里**把线索
+// 写进 state.prospects——中间插一个 await，微任务就会先跑，
+// 那时线索还不在池子里，体检什么都找不到，而且不报任何错。
+let n8 = 0;
+for (const { f, t } of all) {
+  const lines = t.split(NL);
+  lines.forEach((l, i) => {
+    if (!l.includes("admitProspects(") || l.includes("function admitProspects")) return;
+    const after = lines.slice(i, i + 6).join(NL);
+    const assignAt = after.indexOf("state.prospects");
+    if (assignAt === -1) return; // 没写回：可能是别的用法，交给人看
+    if (after.slice(0, assignAt).includes("await ")) {
+      bad(`${f}:${i + 1} admitProspects 与写回之间夹了 await，入池体检会落空`);
+      n8 += 1;
+    }
+  });
+}
+if (!n8) ok("全部同步写回");
+
 console.log("");
 if (problems) {
   console.log(`发现 ${problems} 处。多数是"静默失效"——不报错，所以只能靠这种扫描发现。`);

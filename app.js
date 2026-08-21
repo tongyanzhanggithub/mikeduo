@@ -210,6 +210,10 @@ function emailVerificationState(prospect, email) {
   if (cand) return /verified|导入原始邮箱|官网公示/.test(cand.pattern || "") ? "verified" : "guessed";
 
   // 没有候选记录：来源是推测类就仍然当推测，其余（粘贴导入/CSV/联网抓到的原始地址）放行
+  // claude / local 是**历史遗留值**：这两条产出编造联系人的路径已经删掉了，
+  // 现在没有任何代码会写出这两个值。但老用户的数据里还有——升级迁移只清理了
+  // 明显是拼出来的地址，contactSource 本身保留着。所以这条判断必须留着，
+  // 走查工具会把它报成「读了没人写」，那是预期的，别当死代码删掉。
   return prospect.contactSource === "claude" || prospect.contactSource === "local" ? "guessed" : "verified";
 }
 
@@ -307,7 +311,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "e32e5981";
+window.__APP_V = "47cdab81";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
