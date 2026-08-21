@@ -204,13 +204,13 @@ function computeLeadScore(prospect) {
   }
 
   // 6. 互动信号（权重最高，主导评分分层）
+  // 这三行原本各自 some() 扫一遍全表，而本函数是每条线索都要调的 →  平方级。
+  // 现在走渲染期索引（见 0-brand-edition.js 的 buildScanIndex），不在渲染中时行为不变。
   const replied =
-    state.inbound.some((m) => m.prospectId === prospect.id) ||
+    hasRepliedInbound(prospect.id) ||
     prospect.status === "已回复" ||
     stageIndex(prospect.dealStage || "线索") >= stageIndex("已回复");
-  const opened =
-    state.outbox.some((o) => o.prospectId === prospect.id && o.status === "已发送" && o.opened) ||
-    state.whatsappQueue.some((w) => w.prospectId === prospect.id && w.status === "已发送" && w.read);
+  const opened = hasOpenedOutbound(prospect.id);
   const touched = hasSentOutbound(prospect.id);
   if (replied) add(25, "客户已回复（强意向）");
   else if (opened) add(12, "邮件/消息已打开");
@@ -240,6 +240,8 @@ function stageIndex(stage) {
 }
 
 function hasSentOutbound(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.sent.has(prospectId);
   return (
     state.outbox.some((item) => item.prospectId === prospectId && item.status === "已发送") ||
     state.whatsappQueue.some((item) => item.prospectId === prospectId && item.status === "已发送")
@@ -340,13 +342,20 @@ function renderCrmKpis() {
     .join("");
 }
 
+// 每列最多渲染这么多张卡。看板一列堆几千张卡没人会往下拖，
+// 但排版代价是实打实的：5000 条线索时整块看板要生成 4.8 万个 DOM 节点、渲染 1.3 秒。
+// 列头的数量和金额仍然按**全部**算，只是卡片不全铺出来。
+const CRM_CARDS_PER_COLUMN = 60;
+
 function renderCrmBoard() {
   const prospects = crmProspects();
   elements.crmBoard.innerHTML = DEAL_STAGES.map((stage) => {
     const cards = prospects.filter((p) => p.dealStage === stage);
     const value = cards.reduce((sum, p) => sum + (p.dealValue || 0), 0);
+    const rest = cards.length - CRM_CARDS_PER_COLUMN;
     const cardsHtml = cards.length
-      ? cards.map(renderCrmCard).join("")
+      ? cards.slice(0, CRM_CARDS_PER_COLUMN).map(renderCrmCard).join("") +
+        (rest > 0 ? `<div class="crm-more">还有 ${rest} 位在这一阶段，去潜客页按阶段筛选查看</div>` : "")
       : `<div class="empty-state">拖入客户到「${stage}」</div>`;
     return `
       <div class="crm-column" data-stage="${stage}">
@@ -363,7 +372,7 @@ function renderCrmBoard() {
 function renderCrmCard(prospect) {
   const lead = computeLeadScore(prospect);
   const due = getProspectDue(prospect.id);
-  const replied = prospect.dealStage === "已回复" || state.inbound.some((m) => m.prospectId === prospect.id);
+  const replied = prospect.dealStage === "已回复" || hasRepliedInbound(prospect.id); // 原本每张卡都扫一遍全部来信
   const needsFollowup =
     stageIndex(prospect.dealStage) >= stageIndex("已触达") &&
     prospect.dealStage !== "成交" &&

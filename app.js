@@ -80,6 +80,148 @@ function isEngagedProspect(prospect) {
 // 要么改变长度（push/unshift/splice），两者都会让签名失效。
 let mkdTrialLockCache = { arr: null, len: -1, set: null };
 
+/* ---------- 渲染期互动索引（性能） ----------
+
+   质量分和发信预检都要反复问同几个问题：这条线索回过信没、开过信没、
+   发过没、对应的线索对象在哪。原本每问一次就 some()/find() 扫一遍全表，
+   而这两个函数又是**对每条线索各调一次**的，于是就是平方级。
+
+   实测（tools/bench-scale.mjs，只算 JS 不含排版）：
+     1000 条  质量分 13ms   预检  9ms   潜客页渲染  27ms
+     5000 条  质量分 394ms  预检 225ms  潜客页渲染 680ms
+   数据 ×5 → 耗时 ×25，教科书式的 O(n²)。
+
+   修法是渲染开始时把三张表各扫一遍建索引，之后每次查是 O(1)。
+
+   关键在**生命周期**：索引只在一次同步渲染期间存在，渲染一结束立刻丢掉。
+   不做长期缓存——发送会把 outbox 条目的 status 就地改成"已发送"，
+   数组引用和长度都不变，任何"按引用+长度"的失效判据都会失灵，
+   于是质量分会一直停在发送前的旧值。渲染期作用域没有这个问题：
+   一次同步渲染中间不会有人写数据。
+
+   不在渲染中时（depth 为 0）索引为 null，各处自动退回原来的扫表写法——
+   行为完全一致，只是没有加速。 */
+
+let mkdScanDepth = 0;
+let mkdScanIndex = null;
+
+function buildScanIndex() {
+  const idx = {
+    prospectById: new Map(),
+    replied: new Set(), // 收到过回信
+    opened: new Set(), // 邮件被打开 或 WhatsApp 被读
+    sent: new Set(), // 已经真实发出去过（邮件或 WhatsApp）
+    sentOutboxByProspect: new Map(), // 查重复触达用
+    memo: new Map() // 渲染期通用备忘（见 renderMemo）
+  };
+  for (const p of state.prospects || []) if (p && p.id) idx.prospectById.set(p.id, p);
+  for (const m of state.inbound || []) if (m && m.prospectId) idx.replied.add(m.prospectId);
+  for (const o of state.outbox || []) {
+    if (!o || !o.prospectId || o.status !== "已发送") continue;
+    idx.sent.add(o.prospectId);
+    if (o.opened) idx.opened.add(o.prospectId);
+    const list = idx.sentOutboxByProspect.get(o.prospectId);
+    if (list) list.push(o);
+    else idx.sentOutboxByProspect.set(o.prospectId, [o]);
+  }
+  for (const w of state.whatsappQueue || []) {
+    if (!w || !w.prospectId || w.status !== "已发送") continue;
+    idx.sent.add(w.prospectId);
+    if (w.read) idx.opened.add(w.prospectId);
+  }
+  return idx;
+}
+
+// 返回当前渲染期的索引；不在渲染中则返回 null（调用方退回扫表）
+function scanIndex() {
+  if (mkdScanDepth <= 0) return null;
+  if (!mkdScanIndex) mkdScanIndex = buildScanIndex();
+  return mkdScanIndex;
+}
+
+/* 渲染期备忘。
+
+   活动线索 / 活动发信队列 / 分析口径这几个派生集合，被 86 个渲染函数反复调用，
+   每次都要重新 filter 一遍全池、重新建一遍 Set。更糟的是有些是在**遍历线索的
+   循环体里**调的（比如 axReplied → axInbound → activeProspectIdSet），
+   于是每条线索都要把全池重建一遍——这是分析页 5000 条要 2.4 秒的主因。
+
+   同一次渲染里这些集合不会变，算一次就够。生命周期跟索引一致：渲染结束即丢。
+
+   注意：返回的是**共享引用**，调用方不能原地改（sort/push/splice）。
+   接入前已全量扫过一遍，当前没有这种用法；新增调用方请照此约定。 */
+function renderMemo(key, fn) {
+  const idx = scanIndex();
+  if (!idx) return fn(); // 不在渲染中：照旧现算，行为不变
+  if (idx.memo.has(key)) return idx.memo.get(key);
+  const value = fn();
+  idx.memo.set(key, value);
+  return value;
+}
+
+// 在 fn 执行期间维持一份索引。可重入：嵌套调用共用同一份，最外层退出时才丢。
+function withScanIndex(fn) {
+  mkdScanDepth += 1;
+  try {
+    return fn();
+  } finally {
+    mkdScanDepth -= 1;
+    if (mkdScanDepth <= 0) {
+      mkdScanDepth = 0;
+      mkdScanIndex = null;
+    }
+  }
+}
+
+// 下面四个是索引与扫表的统一入口：有索引走索引，没有就按原来的方式扫。
+function prospectById(id) {
+  const idx = scanIndex();
+  if (idx) return idx.prospectById.get(id);
+  return (state.prospects || []).find((p) => p.id === id);
+}
+
+function hasRepliedInbound(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.replied.has(prospectId);
+  return (state.inbound || []).some((m) => m.prospectId === prospectId);
+}
+
+function hasOpenedOutbound(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.opened.has(prospectId);
+  return (
+    (state.outbox || []).some((o) => o.prospectId === prospectId && o.status === "已发送" && o.opened) ||
+    (state.whatsappQueue || []).some((w) => w.prospectId === prospectId && w.status === "已发送" && w.read)
+  );
+}
+
+// 按线索归拢发信队列（**全部状态**，区别于只收"已发送"的 sentOutboxFor）。
+// 到期跟进要看「这条线索名下都有哪些邮件、有没有还没发的后续」，
+// 原本每条线索都 filter 一遍整个队列 → 平方级。懒建，用到才建。
+function outboxFor(prospectId) {
+  const idx = scanIndex();
+  if (!idx) return (state.outbox || []).filter((o) => o.prospectId === prospectId);
+  if (!idx.outboxByProspect) {
+    const map = new Map();
+    for (const o of state.outbox || []) {
+      if (!o || !o.prospectId) continue;
+      const list = map.get(o.prospectId);
+      if (list) list.push(o);
+      else map.set(o.prospectId, [o]);
+    }
+    idx.outboxByProspect = map;
+  }
+  return idx.outboxByProspect.get(prospectId) || [];
+}
+
+function sentOutboxFor(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.sentOutboxByProspect.get(prospectId) || [];
+  return (state.outbox || []).filter((o) => o.prospectId === prospectId && o.status === "已发送");
+}
+
+
+
 function trialUnlockedIdSet() {
   if (!isTrial()) return null; // null = 不限，全部可用
   const list = typeof state === "undefined" ? [] : state.prospects || [];
@@ -311,7 +453,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "47cdab81";
+window.__APP_V = "257eeae5";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -955,27 +1097,35 @@ function isActiveCampaignProspect(prospect) {
   return !prospect.campaignId || prospect.campaignId === cid;
 }
 
+// 这五个是全场调用最频繁的派生集合，一次渲染里会被调上千次，
+// 而每次都要重新过一遍全池。渲染期备一份就够，渲染结束自动作废。
 function activeProspects() {
-  return (state.prospects || []).filter(isActiveCampaignProspect);
+  return renderMemo("activeProspects", () => (state.prospects || []).filter(isActiveCampaignProspect));
 }
 
 function activeProspectIdSet() {
-  return new Set(activeProspects().map((prospect) => prospect.id));
+  return renderMemo("activeProspectIdSet", () => new Set(activeProspects().map((prospect) => prospect.id)));
 }
 
 function activeOutboxItems() {
-  const ids = activeProspectIdSet();
-  return (state.outbox || []).filter((item) => ids.has(item.prospectId));
+  return renderMemo("activeOutboxItems", () => {
+    const ids = activeProspectIdSet();
+    return (state.outbox || []).filter((item) => ids.has(item.prospectId));
+  });
 }
 
 function activeWhatsappQueueItems() {
-  const ids = activeProspectIdSet();
-  return (state.whatsappQueue || []).filter((item) => ids.has(item.prospectId));
+  return renderMemo("activeWhatsappQueueItems", () => {
+    const ids = activeProspectIdSet();
+    return (state.whatsappQueue || []).filter((item) => ids.has(item.prospectId));
+  });
 }
 
 function activeInboundItems() {
-  const ids = activeProspectIdSet();
-  return (state.inbound || []).filter((item) => ids.has(item.prospectId));
+  return renderMemo("activeInboundItems", () => {
+    const ids = activeProspectIdSet();
+    return (state.inbound || []).filter((item) => ids.has(item.prospectId));
+  });
 }
 
 function activeTasks() {
@@ -1965,6 +2115,22 @@ function renderTopProspects() {
     : `<div class="empty-state">暂无潜客</div>`;
 }
 
+/* 潜客表分页。
+
+   一次性把整池塞进 DOM 会卡在**排版**上，不是 JS 上：实测 2000 条线索
+   渲染出 3.4 万个 DOM 节点、2.2MB HTML，其中拼字符串 164ms、写 innerHTML 51ms，
+   而浏览器强制排版要 540ms。这部分优化 JS 没有用，只能不生成这么多节点。
+
+   只渲染前 PROSPECT_PAGE_SIZE 行，其余按需展开。
+
+   要紧的是**全选的口径不能跟着变**：它一直是"全部筛选结果"，不是"当前这一页"。
+   所以完整的筛选结果 id 记在 mkdFilteredProspectIds 上，
+   visibleProspectIds() 读它而不是数 DOM 里有几个复选框。 */
+const PROSPECT_PAGE_SIZE = 200;
+let mkdProspectShown = PROSPECT_PAGE_SIZE;
+let mkdProspectFilterSig = null;
+let mkdFilteredProspectIds = [];
+
 function renderProspects() {
   const prospects = activeProspects();
   const hasProspects = prospects.length > 0;
@@ -2026,6 +2192,15 @@ function renderProspects() {
 
   renderVerifyBanner();
 
+  // 筛选条件一变就回到第一页，否则换个筛选还停在"已展开 800 行"的状态
+  const filterSig = [filter, status, gradeWanted, sortBy, sourceWanted, verifyWanted, marketWanted].join("|");
+  if (filterSig !== mkdProspectFilterSig) {
+    mkdProspectFilterSig = filterSig;
+    mkdProspectShown = PROSPECT_PAGE_SIZE;
+  }
+  // 全选的口径 = 全部筛选结果（不受分页影响）
+  mkdFilteredProspectIds = rows.map(({ item }) => item.id);
+
   if (!rows.length) {
     elements.prospectTable.innerHTML =
       `${prospects.length ? summary : ""}` +
@@ -2050,6 +2225,7 @@ function renderProspects() {
       <span>操作</span>
     </div>
     ${rows
+      .slice(0, mkdProspectShown)
       .map(
         ({ item, lead }) => `
           <div class="prospect-row ${item.id === state.selectedProspectId ? "is-selected" : ""}" data-prospect-id="${item.id}" role="button" tabindex="0">
@@ -2077,9 +2253,28 @@ function renderProspects() {
         `
       )
       .join("")}
+    ${
+      rows.length > mkdProspectShown
+        ? `<div class="prospect-more">
+             <span>已显示 ${mkdProspectShown} / ${rows.length} 条（筛选、排序、全选、批量操作都按全部 ${rows.length} 条算）</span>
+             <button class="ghost-button" data-prospect-more="1" type="button">再显示 ${Math.min(PROSPECT_PAGE_SIZE, rows.length - mkdProspectShown)} 条</button>
+             ${rows.length - mkdProspectShown > PROSPECT_PAGE_SIZE ? `<button class="text-button" data-prospect-more="all" type="button">全部展开（会变慢）</button>` : ""}
+           </div>`
+        : ""
+    }
   `;
   renderProspectBulkBar();
 }
+
+// 展开更多行。整池展开会明显变慢，所以按钮上直接写明白。
+document.addEventListener("click", (event) => {
+  const more = event.target.closest("[data-prospect-more]");
+  if (!more) return;
+  event.stopPropagation();
+  mkdProspectShown =
+    more.dataset.prospectMore === "all" ? Number.MAX_SAFE_INTEGER : mkdProspectShown + PROSPECT_PAGE_SIZE;
+  renderProspects();
+});
 
 
 // 该市场适合走哪个渠道——把 MARKET_CHANNEL 的判定摆到台面上，
@@ -2431,10 +2626,30 @@ function renderOutbox() {
       </div>`
     : "";
 
+  /* 已处理邮件封顶。
+
+     队列的勾选状态存在 DOM 的复选框上（不在 state 里），所以**不能**整体分页——
+     一分页，「全选待审/待发」就会悄悄只选当前这一页，而文案上的数字没变。
+     但只有「待审批 / 待发送」才带复选框，已处理的那些不参与任何选择，
+     把它们封顶就完全不影响口径，而排版开销正是它们贡献的大头
+     （5000 条线索时队列要生成 2.2 万个 DOM 节点、渲染 591ms）。 */
+  const DONE_ROWS_CAP = 200;
+  let doneShown = 0;
+  let doneHidden = 0;
+  const visibleItems = items.filter((item) => {
+    if (["待审批", "待发送"].includes(item.status)) return true; // 可勾选的一条不少
+    if (doneShown < DONE_ROWS_CAP) {
+      doneShown += 1;
+      return true;
+    }
+    doneHidden += 1;
+    return false;
+  });
+
   elements.outboxList.innerHTML =
     strip +
     (items.length
-      ? items
+      ? visibleItems
           .map((item) => {
             const selectable = ["待审批", "待发送"].includes(item.status);
             // D3：预检徽章放最左，扫一眼就知道堵点在哪；主题过长在这一行直接提示
@@ -2459,7 +2674,10 @@ function renderOutbox() {
         </article>
       `;
           })
-          .join("")
+          .join("") +
+        (doneHidden
+          ? `<div class="list-more">已处理的邮件只显示最近 ${doneShown} 封，另有 ${doneHidden} 封已收起（待审批和待发送的一封不少，全在上面）</div>`
+          : "")
       : `<div class="empty-state">这一档里暂时没有邮件</div>`);
 }
 
@@ -3593,13 +3811,13 @@ function computeLeadScore(prospect) {
   }
 
   // 6. 互动信号（权重最高，主导评分分层）
+  // 这三行原本各自 some() 扫一遍全表，而本函数是每条线索都要调的 →  平方级。
+  // 现在走渲染期索引（见 0-brand-edition.js 的 buildScanIndex），不在渲染中时行为不变。
   const replied =
-    state.inbound.some((m) => m.prospectId === prospect.id) ||
+    hasRepliedInbound(prospect.id) ||
     prospect.status === "已回复" ||
     stageIndex(prospect.dealStage || "线索") >= stageIndex("已回复");
-  const opened =
-    state.outbox.some((o) => o.prospectId === prospect.id && o.status === "已发送" && o.opened) ||
-    state.whatsappQueue.some((w) => w.prospectId === prospect.id && w.status === "已发送" && w.read);
+  const opened = hasOpenedOutbound(prospect.id);
   const touched = hasSentOutbound(prospect.id);
   if (replied) add(25, "客户已回复（强意向）");
   else if (opened) add(12, "邮件/消息已打开");
@@ -3629,6 +3847,8 @@ function stageIndex(stage) {
 }
 
 function hasSentOutbound(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.sent.has(prospectId);
   return (
     state.outbox.some((item) => item.prospectId === prospectId && item.status === "已发送") ||
     state.whatsappQueue.some((item) => item.prospectId === prospectId && item.status === "已发送")
@@ -3729,13 +3949,20 @@ function renderCrmKpis() {
     .join("");
 }
 
+// 每列最多渲染这么多张卡。看板一列堆几千张卡没人会往下拖，
+// 但排版代价是实打实的：5000 条线索时整块看板要生成 4.8 万个 DOM 节点、渲染 1.3 秒。
+// 列头的数量和金额仍然按**全部**算，只是卡片不全铺出来。
+const CRM_CARDS_PER_COLUMN = 60;
+
 function renderCrmBoard() {
   const prospects = crmProspects();
   elements.crmBoard.innerHTML = DEAL_STAGES.map((stage) => {
     const cards = prospects.filter((p) => p.dealStage === stage);
     const value = cards.reduce((sum, p) => sum + (p.dealValue || 0), 0);
+    const rest = cards.length - CRM_CARDS_PER_COLUMN;
     const cardsHtml = cards.length
-      ? cards.map(renderCrmCard).join("")
+      ? cards.slice(0, CRM_CARDS_PER_COLUMN).map(renderCrmCard).join("") +
+        (rest > 0 ? `<div class="crm-more">还有 ${rest} 位在这一阶段，去潜客页按阶段筛选查看</div>` : "")
       : `<div class="empty-state">拖入客户到「${stage}」</div>`;
     return `
       <div class="crm-column" data-stage="${stage}">
@@ -3752,7 +3979,7 @@ function renderCrmBoard() {
 function renderCrmCard(prospect) {
   const lead = computeLeadScore(prospect);
   const due = getProspectDue(prospect.id);
-  const replied = prospect.dealStage === "已回复" || state.inbound.some((m) => m.prospectId === prospect.id);
+  const replied = prospect.dealStage === "已回复" || hasRepliedInbound(prospect.id); // 原本每张卡都扫一遍全部来信
   const needsFollowup =
     stageIndex(prospect.dealStage) >= stageIndex("已触达") &&
     prospect.dealStage !== "成交" &&
@@ -4226,20 +4453,49 @@ function hashInt(str) {
   return hash;
 }
 
+/* 「这条线索有没有来过信 / 发过邮件 / 发过 WhatsApp」是全场问得最多的三个问题，
+   而问的次数跟线索数成正比 —— 每问一次就 some() 扫一遍对应的表，就是平方级。
+   实测 isReplied 在一次渲染里被调 3465 次，每次扫一遍全部来信。
+   归成 id 集合，渲染期备一份；不在渲染中时 renderMemo 会退回现算，行为不变。 */
+function activeInboundIdSet() {
+  return renderMemo("activeInboundIdSet", () => new Set(activeInboundItems().map((m) => m.prospectId)));
+}
+
+function activeOutboxIdSet() {
+  return renderMemo("activeOutboxIdSet", () => new Set(activeOutboxItems().map((o) => o.prospectId)));
+}
+
+function activeWhatsappIdSet() {
+  return renderMemo("activeWhatsappIdSet", () => new Set(activeWhatsappQueueItems().map((w) => w.prospectId)));
+}
+
+// 按线索归拢来信，供 replyChannels 取渠道用
+function inboundByProspect() {
+  return renderMemo("inboundByProspect", () => {
+    const map = new Map();
+    for (const m of activeInboundItems()) {
+      const list = map.get(m.prospectId);
+      if (list) list.push(m);
+      else map.set(m.prospectId, [m]);
+    }
+    return map;
+  });
+}
+
 function isReplied(prospect) {
   return (
-    activeInboundItems().some((m) => m.prospectId === prospect.id) ||
+    activeInboundIdSet().has(prospect.id) ||
     prospect.status === "已回复" ||
     stageIndex(prospect.dealStage || "线索") >= stageIndex("已回复")
   );
 }
 
 function replyChannels(prospect) {
-  const fromInbound = [...new Set(activeInboundItems().filter((m) => m.prospectId === prospect.id).map((m) => m.channel))];
+  const fromInbound = [...new Set((inboundByProspect().get(prospect.id) || []).map((m) => m.channel))];
   if (fromInbound.length) return fromInbound;
   if (!isReplied(prospect)) return [];
-  if (activeOutboxItems().some((o) => o.prospectId === prospect.id)) return ["email"];
-  if (activeWhatsappQueueItems().some((w) => w.prospectId === prospect.id)) return ["whatsapp"];
+  if (activeOutboxIdSet().has(prospect.id)) return ["email"];
+  if (activeWhatsappIdSet().has(prospect.id)) return ["whatsapp"];
   return [];
 }
 
@@ -4298,21 +4554,40 @@ function inAnalyticsRange(ts) {
   return ts >= Date.now() - ms && ts <= Date.now() + 86400000;
 }
 
+// 同样按渲染期备忘：分析页里这三个会在遍历线索的循环体里被反复调用。
+// 时间范围来自界面上的选择器，一次渲染中不会变，所以备忘是安全的。
 function axOutbox() {
-  return activeOutboxItems().filter((o) => inAnalyticsRange(toTime(o.sentAt || o.createdAt || o.dueDate)));
+  return renderMemo("axOutbox", () =>
+    activeOutboxItems().filter((o) => inAnalyticsRange(toTime(o.sentAt || o.createdAt || o.dueDate)))
+  );
 }
 
 function axWa() {
-  return activeWhatsappQueueItems().filter((w) => inAnalyticsRange(toTime(w.sentAt || w.createdAt || w.dueDate)));
+  return renderMemo("axWa", () =>
+    activeWhatsappQueueItems().filter((w) => inAnalyticsRange(toTime(w.sentAt || w.createdAt || w.dueDate)))
+  );
 }
 
 function axInbound() {
-  return activeInboundItems().filter((m) => inAnalyticsRange(toTime(m.at || m.time)));
+  return renderMemo("axInbound", () => activeInboundItems().filter((m) => inAnalyticsRange(toTime(m.at || m.time))));
+}
+
+// 分析口径下「被触达过」的线索 id（邮件或 WhatsApp 任一）。
+// 分析页洞察和市场表现都要按市场分组统计触达数，原本各自
+// list.filter(p => outbox.some(...)) 逐条扫队列 → 平方级。
+function axTouchedIdSet() {
+  return renderMemo("axTouchedIds", () => {
+    const set = new Set();
+    for (const o of axOutbox()) set.add(o.prospectId);
+    for (const w of axWa()) set.add(w.prospectId);
+    return set;
+  });
 }
 
 function axReplied(prospect) {
   if (!analyticsRangeMs()) return isReplied(prospect);
-  return axInbound().some((m) => m.prospectId === prospect.id);
+  // 原本每条线索都 some() 扫一遍 axInbound（而 axInbound 自己又要过一遍全池）→ 平方级
+  return renderMemo("axRepliedIds", () => new Set(axInbound().map((m) => m.prospectId))).has(prospect.id);
 }
 
 // 漏斗算法只此一份。分析页按当前活动算，管理页的跨活动总览按每个活动各算一遍
@@ -4333,28 +4608,38 @@ function funnelFor(prospects, rangeMs) {
   );
   const inbound = (state.inbound || []).filter((m) => ids.has(m.prospectId) && inRange(toTime(m.at || m.time)));
 
+  // 先把「谁被触达过 / 谁送达了 / 谁打开了 / 谁回过信」归成 id 集合，各扫一遍队列即可。
+  // 原本是五个 prospects.filter(p => outbox.some(...))，每条线索都要扫一遍整个队列 →
+  // O(线索 × 队列)。分析页、渠道对比、来源效果、转化协助全都调这一份漏斗，
+  // 所以这一处平方级会同时拖慢一整片。实测 4000 条时分析页要 576ms。
+  const reachedIds = new Set();
+  const deliveredIds = new Set();
+  const openedIds = new Set();
+  const repliedIds = new Set();
+  for (const o of outbox) {
+    reachedIds.add(o.prospectId);
+    if (o.delivered) deliveredIds.add(o.prospectId);
+    if (o.opened) openedIds.add(o.prospectId);
+  }
+  for (const w of wa) {
+    reachedIds.add(w.prospectId);
+    if (w.delivered) deliveredIds.add(w.prospectId);
+    if (w.read) openedIds.add(w.prospectId); // WhatsApp 的"打开"是已读
+  }
+  for (const m of inbound) repliedIds.add(m.prospectId);
+
   // 限了时间窗就只认窗口内真的来过信；不限时间才用客户身上的"已回复"标记。
   // 否则选「近 7 天」会把三个月前回过信的客户算进本周回复率。
   const repliedOf = (p) =>
     rangeMs
-      ? inbound.some((m) => m.prospectId === p.id)
-      : inbound.some((m) => m.prospectId === p.id) ||
+      ? repliedIds.has(p.id)
+      : repliedIds.has(p.id) ||
         p.status === "已回复" ||
         stageIndex(p.dealStage || "线索") >= stageIndex("已回复");
 
-  const reached = prospects.filter(
-    (p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)
-  );
-  const delivered = reached.filter(
-    (p) =>
-      outbox.some((o) => o.prospectId === p.id && o.delivered) ||
-      wa.some((w) => w.prospectId === p.id && w.delivered)
-  );
-  const opened = reached.filter(
-    (p) =>
-      outbox.some((o) => o.prospectId === p.id && o.opened) ||
-      wa.some((w) => w.prospectId === p.id && w.read)
-  );
+  const reached = prospects.filter((p) => reachedIds.has(p.id));
+  const delivered = reached.filter((p) => deliveredIds.has(p.id));
+  const opened = reached.filter((p) => openedIds.has(p.id));
   const replied = reached.filter(repliedOf);
   const inquiry = prospects.filter((p) => stageIndex(p.dealStage) >= stageIndex("询盘"));
   // 前段获客阶段（合并原「线索阶段漏斗」）：线索总数 → 有联系方式
@@ -4371,7 +4656,8 @@ function funnelFor(prospects, rangeMs) {
 }
 
 function computeFunnel() {
-  return funnelFor(activeProspects(), analyticsRangeMs());
+  // 分析页、洞察、渠道对比、来源效果…各自都要一份，同一次渲染里是同一个结果
+  return renderMemo("computeFunnel", () => funnelFor(activeProspects(), analyticsRangeMs()));
 }
 
 function renderAnalytics() {
@@ -4432,10 +4718,11 @@ function renderAnalyticsInsight(funnel) {
   // 回复率最高的市场（至少触达 2 家才纳入，避免小样本噪音）
   const prospects = activeProspects();
   const markets = [...new Set(prospects.map((p) => p.market))];
+  const touched = axTouchedIdSet();
   const marketStats = markets
     .map((market) => {
       const list = prospects.filter((p) => p.market === market);
-      const reached = list.filter((p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)).length;
+      const reached = list.filter((p) => touched.has(p.id)).length;
       const replied = list.filter(axReplied).length;
       return { market, reached, replied, rate: pct(replied, reached) };
     })
@@ -4752,14 +5039,11 @@ function renderMarketPerformance() {
     return;
   }
 
-  const outbox = axOutbox();
-  const wa = axWa();
+  const touched = axTouchedIdSet();
   const rows = markets
     .map((market) => {
       const list = prospects.filter((p) => p.market === market);
-      const reached = list.filter(
-        (p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)
-      ).length;
+      const reached = list.filter((p) => touched.has(p.id)).length;
       const replied = list.filter(axReplied).length;
       const inquiry = list.filter((p) => stageIndex(p.dealStage) >= stageIndex("询盘")).length;
       return { market, touched: reached, replied, inquiry, rate: pct(replied, reached) };
@@ -11199,7 +11483,7 @@ function dueFollowupProspects() {
   return activeProspects().filter((p) => {
     if (p.optOut) return false;
     if (p.status === "已回复" || axReplied(p)) return false;
-    const mine = state.outbox.filter((o) => o.prospectId === p.id);
+    const mine = outboxFor(p.id); // 原本每条线索都扫一遍整个队列 → 平方级
     const sent = mine.filter((o) => o.status === "已发送");
     if (!sent.length) return false; // 还没发过首封，交给一键起量/入队
     if (mine.some((o) => ["待发送", "待审批"].includes(o.status))) return false; // 已有待发的后续
@@ -11485,7 +11769,9 @@ function spamFlags(subject, body) {
 }
 
 function preflightOutboxItem(item) {
-  const prospect = state.prospects.find((p) => p.id === item.prospectId);
+  // 队列每一行渲染都会调这里，原本 find 扫全线索池；加上 08/09 两层包装各自再查一次，
+  // 就是每封信扫三遍全池 → 平方级。prospectById 在渲染期是 O(1)，其余时候行为不变。
+  const prospect = prospectById(item.prospectId);
   const blockers = [];
   const warnings = [];
   if (prospect?.optOut) blockers.push("客户已退订");
@@ -11496,12 +11782,9 @@ function preflightOutboxItem(item) {
   if (sensitive) warnings.push(`含敏感话题：${sensitive}`);
   const spam = spamFlags(item.subject, item.body);
   if (spam.length) warnings.push(`易进垃圾箱（${spam.slice(0, 3).join("、")}${spam.length > 3 ? "…" : ""}），建议改写`);
-  const dup = state.outbox.some(
-    (o) =>
-      o.id !== item.id &&
-      o.prospectId === item.prospectId &&
-      o.status === "已发送" &&
-      (o.step === item.step || o.subject === item.subject)
+  // 同理：原本扫全发信队列，现在只看这条线索名下已发出的那几封
+  const dup = sentOutboxFor(item.prospectId).some(
+    (o) => o.id !== item.id && (o.step === item.step || o.subject === item.subject)
   );
   if (dup) warnings.push("疑似重复触达（同客户同类邮件已发送）");
   return { blockers, warnings, ok: blockers.length === 0 };
@@ -14128,8 +14411,11 @@ function isProspectSelected(id) {
   return mkdSelectedProspects.has(id);
 }
 
+// 「全选当前筛选结果」的口径是**全部筛选结果**，不是当前渲染出来的那一页。
+// 潜客表分页后如果继续数 DOM 里的复选框，全选会悄悄缩水成"全选本页"，
+// 而用户看到的文案没变——这种静默的语义漂移比慢更糟。
 function visibleProspectIds() {
-  return [...(elements.prospectTable?.querySelectorAll("[data-prospect-check]") || [])].map((c) => c.dataset.prospectCheck);
+  return [...mkdFilteredProspectIds];
 }
 
 // 市场筛选的选项随线索池变化，重建时保留当前选择
@@ -15488,7 +15774,9 @@ download = function (filename, content, type) {
 const __mkdBasePreflight = preflightOutboxItem;
 preflightOutboxItem = function (item) {
   const result = __mkdBasePreflight(item);
-  const prospect = state.prospects.find((p) => p.id === item.prospectId);
+  // 走索引而不是 find 扫全池：这一层和底层、以及 09 里那一层，各自都要查同一条线索，
+  // 三次全表扫描 × 队列每一行 = 平方级。prospectById 在渲染期是 O(1)，其余时候行为不变。
+  const prospect = prospectById(item.prospectId);
   // 原实现把"推测未验证"放在 warnings，这里升级为 blockers（口碑保命，不做成可关闭）
   result.warnings = result.warnings.filter((w) => !/推测未验证/.test(w));
   const guard = sendGuard(prospect, item.email);
@@ -18004,7 +18292,7 @@ if (typeof preflightOutboxItem === "function") {
   const __preflightBase = preflightOutboxItem;
   preflightOutboxItem = function (item) {
     const res = __preflightBase(item);
-    const prospect = state.prospects.find((p) => p.id === item.prospectId);
+    const prospect = prospectById(item.prospectId); // 同上：避免第三次全表扫描
     const v = screeningVerdict(prospect);
     if (!v) return res;
     if (v.level === "block") res.blockers.push(v.text);
@@ -18613,13 +18901,18 @@ const MKD_MOUNTS = [
 
 const __mkdRenderBase = render;
 render = function () {
-  __mkdRenderBase();
-  for (const [name, mount] of MKD_MOUNTS) {
-    try {
-      mount();
-    } catch (error) {
-      // 一个面板挂不上，不该把其余的一起带走
-      console.error(`[mkd] 挂载「${name}」失败`, error);
+  // 整轮渲染共用一份互动索引：质量分/预检要问的「回过信没、开过信没、
+  // 发过没」全部变成 O(1) 查表，而不是每条线索扫一遍全表。
+  // 索引在这一轮同步渲染结束时丢掉，不会读到发送后的旧值。
+  return withScanIndex(() => {
+    __mkdRenderBase();
+    for (const [name, mount] of MKD_MOUNTS) {
+      try {
+        mount();
+      } catch (error) {
+        // 一个面板挂不上，不该把其余的一起带走
+        console.error(`[mkd] 挂载「${name}」失败`, error);
+      }
     }
-  }
+  });
 };

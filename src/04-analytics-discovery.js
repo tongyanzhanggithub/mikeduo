@@ -10,20 +10,49 @@ function hashInt(str) {
   return hash;
 }
 
+/* 「这条线索有没有来过信 / 发过邮件 / 发过 WhatsApp」是全场问得最多的三个问题，
+   而问的次数跟线索数成正比 —— 每问一次就 some() 扫一遍对应的表，就是平方级。
+   实测 isReplied 在一次渲染里被调 3465 次，每次扫一遍全部来信。
+   归成 id 集合，渲染期备一份；不在渲染中时 renderMemo 会退回现算，行为不变。 */
+function activeInboundIdSet() {
+  return renderMemo("activeInboundIdSet", () => new Set(activeInboundItems().map((m) => m.prospectId)));
+}
+
+function activeOutboxIdSet() {
+  return renderMemo("activeOutboxIdSet", () => new Set(activeOutboxItems().map((o) => o.prospectId)));
+}
+
+function activeWhatsappIdSet() {
+  return renderMemo("activeWhatsappIdSet", () => new Set(activeWhatsappQueueItems().map((w) => w.prospectId)));
+}
+
+// 按线索归拢来信，供 replyChannels 取渠道用
+function inboundByProspect() {
+  return renderMemo("inboundByProspect", () => {
+    const map = new Map();
+    for (const m of activeInboundItems()) {
+      const list = map.get(m.prospectId);
+      if (list) list.push(m);
+      else map.set(m.prospectId, [m]);
+    }
+    return map;
+  });
+}
+
 function isReplied(prospect) {
   return (
-    activeInboundItems().some((m) => m.prospectId === prospect.id) ||
+    activeInboundIdSet().has(prospect.id) ||
     prospect.status === "已回复" ||
     stageIndex(prospect.dealStage || "线索") >= stageIndex("已回复")
   );
 }
 
 function replyChannels(prospect) {
-  const fromInbound = [...new Set(activeInboundItems().filter((m) => m.prospectId === prospect.id).map((m) => m.channel))];
+  const fromInbound = [...new Set((inboundByProspect().get(prospect.id) || []).map((m) => m.channel))];
   if (fromInbound.length) return fromInbound;
   if (!isReplied(prospect)) return [];
-  if (activeOutboxItems().some((o) => o.prospectId === prospect.id)) return ["email"];
-  if (activeWhatsappQueueItems().some((w) => w.prospectId === prospect.id)) return ["whatsapp"];
+  if (activeOutboxIdSet().has(prospect.id)) return ["email"];
+  if (activeWhatsappIdSet().has(prospect.id)) return ["whatsapp"];
   return [];
 }
 
@@ -82,21 +111,40 @@ function inAnalyticsRange(ts) {
   return ts >= Date.now() - ms && ts <= Date.now() + 86400000;
 }
 
+// 同样按渲染期备忘：分析页里这三个会在遍历线索的循环体里被反复调用。
+// 时间范围来自界面上的选择器，一次渲染中不会变，所以备忘是安全的。
 function axOutbox() {
-  return activeOutboxItems().filter((o) => inAnalyticsRange(toTime(o.sentAt || o.createdAt || o.dueDate)));
+  return renderMemo("axOutbox", () =>
+    activeOutboxItems().filter((o) => inAnalyticsRange(toTime(o.sentAt || o.createdAt || o.dueDate)))
+  );
 }
 
 function axWa() {
-  return activeWhatsappQueueItems().filter((w) => inAnalyticsRange(toTime(w.sentAt || w.createdAt || w.dueDate)));
+  return renderMemo("axWa", () =>
+    activeWhatsappQueueItems().filter((w) => inAnalyticsRange(toTime(w.sentAt || w.createdAt || w.dueDate)))
+  );
 }
 
 function axInbound() {
-  return activeInboundItems().filter((m) => inAnalyticsRange(toTime(m.at || m.time)));
+  return renderMemo("axInbound", () => activeInboundItems().filter((m) => inAnalyticsRange(toTime(m.at || m.time))));
+}
+
+// 分析口径下「被触达过」的线索 id（邮件或 WhatsApp 任一）。
+// 分析页洞察和市场表现都要按市场分组统计触达数，原本各自
+// list.filter(p => outbox.some(...)) 逐条扫队列 → 平方级。
+function axTouchedIdSet() {
+  return renderMemo("axTouchedIds", () => {
+    const set = new Set();
+    for (const o of axOutbox()) set.add(o.prospectId);
+    for (const w of axWa()) set.add(w.prospectId);
+    return set;
+  });
 }
 
 function axReplied(prospect) {
   if (!analyticsRangeMs()) return isReplied(prospect);
-  return axInbound().some((m) => m.prospectId === prospect.id);
+  // 原本每条线索都 some() 扫一遍 axInbound（而 axInbound 自己又要过一遍全池）→ 平方级
+  return renderMemo("axRepliedIds", () => new Set(axInbound().map((m) => m.prospectId))).has(prospect.id);
 }
 
 // 漏斗算法只此一份。分析页按当前活动算，管理页的跨活动总览按每个活动各算一遍
@@ -117,28 +165,38 @@ function funnelFor(prospects, rangeMs) {
   );
   const inbound = (state.inbound || []).filter((m) => ids.has(m.prospectId) && inRange(toTime(m.at || m.time)));
 
+  // 先把「谁被触达过 / 谁送达了 / 谁打开了 / 谁回过信」归成 id 集合，各扫一遍队列即可。
+  // 原本是五个 prospects.filter(p => outbox.some(...))，每条线索都要扫一遍整个队列 →
+  // O(线索 × 队列)。分析页、渠道对比、来源效果、转化协助全都调这一份漏斗，
+  // 所以这一处平方级会同时拖慢一整片。实测 4000 条时分析页要 576ms。
+  const reachedIds = new Set();
+  const deliveredIds = new Set();
+  const openedIds = new Set();
+  const repliedIds = new Set();
+  for (const o of outbox) {
+    reachedIds.add(o.prospectId);
+    if (o.delivered) deliveredIds.add(o.prospectId);
+    if (o.opened) openedIds.add(o.prospectId);
+  }
+  for (const w of wa) {
+    reachedIds.add(w.prospectId);
+    if (w.delivered) deliveredIds.add(w.prospectId);
+    if (w.read) openedIds.add(w.prospectId); // WhatsApp 的"打开"是已读
+  }
+  for (const m of inbound) repliedIds.add(m.prospectId);
+
   // 限了时间窗就只认窗口内真的来过信；不限时间才用客户身上的"已回复"标记。
   // 否则选「近 7 天」会把三个月前回过信的客户算进本周回复率。
   const repliedOf = (p) =>
     rangeMs
-      ? inbound.some((m) => m.prospectId === p.id)
-      : inbound.some((m) => m.prospectId === p.id) ||
+      ? repliedIds.has(p.id)
+      : repliedIds.has(p.id) ||
         p.status === "已回复" ||
         stageIndex(p.dealStage || "线索") >= stageIndex("已回复");
 
-  const reached = prospects.filter(
-    (p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)
-  );
-  const delivered = reached.filter(
-    (p) =>
-      outbox.some((o) => o.prospectId === p.id && o.delivered) ||
-      wa.some((w) => w.prospectId === p.id && w.delivered)
-  );
-  const opened = reached.filter(
-    (p) =>
-      outbox.some((o) => o.prospectId === p.id && o.opened) ||
-      wa.some((w) => w.prospectId === p.id && w.read)
-  );
+  const reached = prospects.filter((p) => reachedIds.has(p.id));
+  const delivered = reached.filter((p) => deliveredIds.has(p.id));
+  const opened = reached.filter((p) => openedIds.has(p.id));
   const replied = reached.filter(repliedOf);
   const inquiry = prospects.filter((p) => stageIndex(p.dealStage) >= stageIndex("询盘"));
   // 前段获客阶段（合并原「线索阶段漏斗」）：线索总数 → 有联系方式
@@ -155,7 +213,8 @@ function funnelFor(prospects, rangeMs) {
 }
 
 function computeFunnel() {
-  return funnelFor(activeProspects(), analyticsRangeMs());
+  // 分析页、洞察、渠道对比、来源效果…各自都要一份，同一次渲染里是同一个结果
+  return renderMemo("computeFunnel", () => funnelFor(activeProspects(), analyticsRangeMs()));
 }
 
 function renderAnalytics() {
@@ -216,10 +275,11 @@ function renderAnalyticsInsight(funnel) {
   // 回复率最高的市场（至少触达 2 家才纳入，避免小样本噪音）
   const prospects = activeProspects();
   const markets = [...new Set(prospects.map((p) => p.market))];
+  const touched = axTouchedIdSet();
   const marketStats = markets
     .map((market) => {
       const list = prospects.filter((p) => p.market === market);
-      const reached = list.filter((p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)).length;
+      const reached = list.filter((p) => touched.has(p.id)).length;
       const replied = list.filter(axReplied).length;
       return { market, reached, replied, rate: pct(replied, reached) };
     })
@@ -536,14 +596,11 @@ function renderMarketPerformance() {
     return;
   }
 
-  const outbox = axOutbox();
-  const wa = axWa();
+  const touched = axTouchedIdSet();
   const rows = markets
     .map((market) => {
       const list = prospects.filter((p) => p.market === market);
-      const reached = list.filter(
-        (p) => outbox.some((o) => o.prospectId === p.id) || wa.some((w) => w.prospectId === p.id)
-      ).length;
+      const reached = list.filter((p) => touched.has(p.id)).length;
       const replied = list.filter(axReplied).length;
       const inquiry = list.filter((p) => stageIndex(p.dealStage) >= stageIndex("询盘")).length;
       return { market, touched: reached, replied, inquiry, rate: pct(replied, reached) };

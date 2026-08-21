@@ -642,27 +642,35 @@ function isActiveCampaignProspect(prospect) {
   return !prospect.campaignId || prospect.campaignId === cid;
 }
 
+// 这五个是全场调用最频繁的派生集合，一次渲染里会被调上千次，
+// 而每次都要重新过一遍全池。渲染期备一份就够，渲染结束自动作废。
 function activeProspects() {
-  return (state.prospects || []).filter(isActiveCampaignProspect);
+  return renderMemo("activeProspects", () => (state.prospects || []).filter(isActiveCampaignProspect));
 }
 
 function activeProspectIdSet() {
-  return new Set(activeProspects().map((prospect) => prospect.id));
+  return renderMemo("activeProspectIdSet", () => new Set(activeProspects().map((prospect) => prospect.id)));
 }
 
 function activeOutboxItems() {
-  const ids = activeProspectIdSet();
-  return (state.outbox || []).filter((item) => ids.has(item.prospectId));
+  return renderMemo("activeOutboxItems", () => {
+    const ids = activeProspectIdSet();
+    return (state.outbox || []).filter((item) => ids.has(item.prospectId));
+  });
 }
 
 function activeWhatsappQueueItems() {
-  const ids = activeProspectIdSet();
-  return (state.whatsappQueue || []).filter((item) => ids.has(item.prospectId));
+  return renderMemo("activeWhatsappQueueItems", () => {
+    const ids = activeProspectIdSet();
+    return (state.whatsappQueue || []).filter((item) => ids.has(item.prospectId));
+  });
 }
 
 function activeInboundItems() {
-  const ids = activeProspectIdSet();
-  return (state.inbound || []).filter((item) => ids.has(item.prospectId));
+  return renderMemo("activeInboundItems", () => {
+    const ids = activeProspectIdSet();
+    return (state.inbound || []).filter((item) => ids.has(item.prospectId));
+  });
 }
 
 function activeTasks() {

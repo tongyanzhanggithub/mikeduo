@@ -835,7 +835,7 @@ function dueFollowupProspects() {
   return activeProspects().filter((p) => {
     if (p.optOut) return false;
     if (p.status === "已回复" || axReplied(p)) return false;
-    const mine = state.outbox.filter((o) => o.prospectId === p.id);
+    const mine = outboxFor(p.id); // 原本每条线索都扫一遍整个队列 → 平方级
     const sent = mine.filter((o) => o.status === "已发送");
     if (!sent.length) return false; // 还没发过首封，交给一键起量/入队
     if (mine.some((o) => ["待发送", "待审批"].includes(o.status))) return false; // 已有待发的后续
@@ -1121,7 +1121,9 @@ function spamFlags(subject, body) {
 }
 
 function preflightOutboxItem(item) {
-  const prospect = state.prospects.find((p) => p.id === item.prospectId);
+  // 队列每一行渲染都会调这里，原本 find 扫全线索池；加上 08/09 两层包装各自再查一次，
+  // 就是每封信扫三遍全池 → 平方级。prospectById 在渲染期是 O(1)，其余时候行为不变。
+  const prospect = prospectById(item.prospectId);
   const blockers = [];
   const warnings = [];
   if (prospect?.optOut) blockers.push("客户已退订");
@@ -1132,12 +1134,9 @@ function preflightOutboxItem(item) {
   if (sensitive) warnings.push(`含敏感话题：${sensitive}`);
   const spam = spamFlags(item.subject, item.body);
   if (spam.length) warnings.push(`易进垃圾箱（${spam.slice(0, 3).join("、")}${spam.length > 3 ? "…" : ""}），建议改写`);
-  const dup = state.outbox.some(
-    (o) =>
-      o.id !== item.id &&
-      o.prospectId === item.prospectId &&
-      o.status === "已发送" &&
-      (o.step === item.step || o.subject === item.subject)
+  // 同理：原本扫全发信队列，现在只看这条线索名下已发出的那几封
+  const dup = sentOutboxFor(item.prospectId).some(
+    (o) => o.id !== item.id && (o.step === item.step || o.subject === item.subject)
   );
   if (dup) warnings.push("疑似重复触达（同客户同类邮件已发送）");
   return { blockers, warnings, ok: blockers.length === 0 };

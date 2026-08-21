@@ -80,6 +80,148 @@ function isEngagedProspect(prospect) {
 // 要么改变长度（push/unshift/splice），两者都会让签名失效。
 let mkdTrialLockCache = { arr: null, len: -1, set: null };
 
+/* ---------- 渲染期互动索引（性能） ----------
+
+   质量分和发信预检都要反复问同几个问题：这条线索回过信没、开过信没、
+   发过没、对应的线索对象在哪。原本每问一次就 some()/find() 扫一遍全表，
+   而这两个函数又是**对每条线索各调一次**的，于是就是平方级。
+
+   实测（tools/bench-scale.mjs，只算 JS 不含排版）：
+     1000 条  质量分 13ms   预检  9ms   潜客页渲染  27ms
+     5000 条  质量分 394ms  预检 225ms  潜客页渲染 680ms
+   数据 ×5 → 耗时 ×25，教科书式的 O(n²)。
+
+   修法是渲染开始时把三张表各扫一遍建索引，之后每次查是 O(1)。
+
+   关键在**生命周期**：索引只在一次同步渲染期间存在，渲染一结束立刻丢掉。
+   不做长期缓存——发送会把 outbox 条目的 status 就地改成"已发送"，
+   数组引用和长度都不变，任何"按引用+长度"的失效判据都会失灵，
+   于是质量分会一直停在发送前的旧值。渲染期作用域没有这个问题：
+   一次同步渲染中间不会有人写数据。
+
+   不在渲染中时（depth 为 0）索引为 null，各处自动退回原来的扫表写法——
+   行为完全一致，只是没有加速。 */
+
+let mkdScanDepth = 0;
+let mkdScanIndex = null;
+
+function buildScanIndex() {
+  const idx = {
+    prospectById: new Map(),
+    replied: new Set(), // 收到过回信
+    opened: new Set(), // 邮件被打开 或 WhatsApp 被读
+    sent: new Set(), // 已经真实发出去过（邮件或 WhatsApp）
+    sentOutboxByProspect: new Map(), // 查重复触达用
+    memo: new Map() // 渲染期通用备忘（见 renderMemo）
+  };
+  for (const p of state.prospects || []) if (p && p.id) idx.prospectById.set(p.id, p);
+  for (const m of state.inbound || []) if (m && m.prospectId) idx.replied.add(m.prospectId);
+  for (const o of state.outbox || []) {
+    if (!o || !o.prospectId || o.status !== "已发送") continue;
+    idx.sent.add(o.prospectId);
+    if (o.opened) idx.opened.add(o.prospectId);
+    const list = idx.sentOutboxByProspect.get(o.prospectId);
+    if (list) list.push(o);
+    else idx.sentOutboxByProspect.set(o.prospectId, [o]);
+  }
+  for (const w of state.whatsappQueue || []) {
+    if (!w || !w.prospectId || w.status !== "已发送") continue;
+    idx.sent.add(w.prospectId);
+    if (w.read) idx.opened.add(w.prospectId);
+  }
+  return idx;
+}
+
+// 返回当前渲染期的索引；不在渲染中则返回 null（调用方退回扫表）
+function scanIndex() {
+  if (mkdScanDepth <= 0) return null;
+  if (!mkdScanIndex) mkdScanIndex = buildScanIndex();
+  return mkdScanIndex;
+}
+
+/* 渲染期备忘。
+
+   活动线索 / 活动发信队列 / 分析口径这几个派生集合，被 86 个渲染函数反复调用，
+   每次都要重新 filter 一遍全池、重新建一遍 Set。更糟的是有些是在**遍历线索的
+   循环体里**调的（比如 axReplied → axInbound → activeProspectIdSet），
+   于是每条线索都要把全池重建一遍——这是分析页 5000 条要 2.4 秒的主因。
+
+   同一次渲染里这些集合不会变，算一次就够。生命周期跟索引一致：渲染结束即丢。
+
+   注意：返回的是**共享引用**，调用方不能原地改（sort/push/splice）。
+   接入前已全量扫过一遍，当前没有这种用法；新增调用方请照此约定。 */
+function renderMemo(key, fn) {
+  const idx = scanIndex();
+  if (!idx) return fn(); // 不在渲染中：照旧现算，行为不变
+  if (idx.memo.has(key)) return idx.memo.get(key);
+  const value = fn();
+  idx.memo.set(key, value);
+  return value;
+}
+
+// 在 fn 执行期间维持一份索引。可重入：嵌套调用共用同一份，最外层退出时才丢。
+function withScanIndex(fn) {
+  mkdScanDepth += 1;
+  try {
+    return fn();
+  } finally {
+    mkdScanDepth -= 1;
+    if (mkdScanDepth <= 0) {
+      mkdScanDepth = 0;
+      mkdScanIndex = null;
+    }
+  }
+}
+
+// 下面四个是索引与扫表的统一入口：有索引走索引，没有就按原来的方式扫。
+function prospectById(id) {
+  const idx = scanIndex();
+  if (idx) return idx.prospectById.get(id);
+  return (state.prospects || []).find((p) => p.id === id);
+}
+
+function hasRepliedInbound(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.replied.has(prospectId);
+  return (state.inbound || []).some((m) => m.prospectId === prospectId);
+}
+
+function hasOpenedOutbound(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.opened.has(prospectId);
+  return (
+    (state.outbox || []).some((o) => o.prospectId === prospectId && o.status === "已发送" && o.opened) ||
+    (state.whatsappQueue || []).some((w) => w.prospectId === prospectId && w.status === "已发送" && w.read)
+  );
+}
+
+// 按线索归拢发信队列（**全部状态**，区别于只收"已发送"的 sentOutboxFor）。
+// 到期跟进要看「这条线索名下都有哪些邮件、有没有还没发的后续」，
+// 原本每条线索都 filter 一遍整个队列 → 平方级。懒建，用到才建。
+function outboxFor(prospectId) {
+  const idx = scanIndex();
+  if (!idx) return (state.outbox || []).filter((o) => o.prospectId === prospectId);
+  if (!idx.outboxByProspect) {
+    const map = new Map();
+    for (const o of state.outbox || []) {
+      if (!o || !o.prospectId) continue;
+      const list = map.get(o.prospectId);
+      if (list) list.push(o);
+      else map.set(o.prospectId, [o]);
+    }
+    idx.outboxByProspect = map;
+  }
+  return idx.outboxByProspect.get(prospectId) || [];
+}
+
+function sentOutboxFor(prospectId) {
+  const idx = scanIndex();
+  if (idx) return idx.sentOutboxByProspect.get(prospectId) || [];
+  return (state.outbox || []).filter((o) => o.prospectId === prospectId && o.status === "已发送");
+}
+
+
+
 function trialUnlockedIdSet() {
   if (!isTrial()) return null; // null = 不限，全部可用
   const list = typeof state === "undefined" ? [] : state.prospects || [];

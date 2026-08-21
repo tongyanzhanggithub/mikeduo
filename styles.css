@@ -9451,3 +9451,34 @@ body.dark .scope-note {
   .screen-summary { background: #450a0a; border-color: #991b1b; color: #fecaca; }
   .screen-one > strong { color: #e2e8f0; }
 }
+
+/* 潜客表分页提示条：说清楚"显示了多少 / 共多少"，以及批量操作按全部算 */
+.prospect-more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.prospect-more span {
+  flex: 1 1 220px;
+}
+
+/* 看板每列卡片封顶后的提示 */
+.crm-more {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 列表封顶后的说明条 */
+.list-more {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}

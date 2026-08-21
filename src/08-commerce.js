@@ -530,8 +530,11 @@ function isProspectSelected(id) {
   return mkdSelectedProspects.has(id);
 }
 
+// 「全选当前筛选结果」的口径是**全部筛选结果**，不是当前渲染出来的那一页。
+// 潜客表分页后如果继续数 DOM 里的复选框，全选会悄悄缩水成"全选本页"，
+// 而用户看到的文案没变——这种静默的语义漂移比慢更糟。
 function visibleProspectIds() {
-  return [...(elements.prospectTable?.querySelectorAll("[data-prospect-check]") || [])].map((c) => c.dataset.prospectCheck);
+  return [...mkdFilteredProspectIds];
 }
 
 // 市场筛选的选项随线索池变化，重建时保留当前选择
@@ -1890,7 +1893,9 @@ download = function (filename, content, type) {
 const __mkdBasePreflight = preflightOutboxItem;
 preflightOutboxItem = function (item) {
   const result = __mkdBasePreflight(item);
-  const prospect = state.prospects.find((p) => p.id === item.prospectId);
+  // 走索引而不是 find 扫全池：这一层和底层、以及 09 里那一层，各自都要查同一条线索，
+  // 三次全表扫描 × 队列每一行 = 平方级。prospectById 在渲染期是 O(1)，其余时候行为不变。
+  const prospect = prospectById(item.prospectId);
   // 原实现把"推测未验证"放在 warnings，这里升级为 blockers（口碑保命，不做成可关闭）
   result.warnings = result.warnings.filter((w) => !/推测未验证/.test(w));
   const guard = sendGuard(prospect, item.email);

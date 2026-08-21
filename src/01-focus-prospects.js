@@ -643,6 +643,22 @@ function renderTopProspects() {
     : `<div class="empty-state">暂无潜客</div>`;
 }
 
+/* 潜客表分页。
+
+   一次性把整池塞进 DOM 会卡在**排版**上，不是 JS 上：实测 2000 条线索
+   渲染出 3.4 万个 DOM 节点、2.2MB HTML，其中拼字符串 164ms、写 innerHTML 51ms，
+   而浏览器强制排版要 540ms。这部分优化 JS 没有用，只能不生成这么多节点。
+
+   只渲染前 PROSPECT_PAGE_SIZE 行，其余按需展开。
+
+   要紧的是**全选的口径不能跟着变**：它一直是"全部筛选结果"，不是"当前这一页"。
+   所以完整的筛选结果 id 记在 mkdFilteredProspectIds 上，
+   visibleProspectIds() 读它而不是数 DOM 里有几个复选框。 */
+const PROSPECT_PAGE_SIZE = 200;
+let mkdProspectShown = PROSPECT_PAGE_SIZE;
+let mkdProspectFilterSig = null;
+let mkdFilteredProspectIds = [];
+
 function renderProspects() {
   const prospects = activeProspects();
   const hasProspects = prospects.length > 0;
@@ -704,6 +720,15 @@ function renderProspects() {
 
   renderVerifyBanner();
 
+  // 筛选条件一变就回到第一页，否则换个筛选还停在"已展开 800 行"的状态
+  const filterSig = [filter, status, gradeWanted, sortBy, sourceWanted, verifyWanted, marketWanted].join("|");
+  if (filterSig !== mkdProspectFilterSig) {
+    mkdProspectFilterSig = filterSig;
+    mkdProspectShown = PROSPECT_PAGE_SIZE;
+  }
+  // 全选的口径 = 全部筛选结果（不受分页影响）
+  mkdFilteredProspectIds = rows.map(({ item }) => item.id);
+
   if (!rows.length) {
     elements.prospectTable.innerHTML =
       `${prospects.length ? summary : ""}` +
@@ -728,6 +753,7 @@ function renderProspects() {
       <span>操作</span>
     </div>
     ${rows
+      .slice(0, mkdProspectShown)
       .map(
         ({ item, lead }) => `
           <div class="prospect-row ${item.id === state.selectedProspectId ? "is-selected" : ""}" data-prospect-id="${item.id}" role="button" tabindex="0">
@@ -755,9 +781,28 @@ function renderProspects() {
         `
       )
       .join("")}
+    ${
+      rows.length > mkdProspectShown
+        ? `<div class="prospect-more">
+             <span>已显示 ${mkdProspectShown} / ${rows.length} 条（筛选、排序、全选、批量操作都按全部 ${rows.length} 条算）</span>
+             <button class="ghost-button" data-prospect-more="1" type="button">再显示 ${Math.min(PROSPECT_PAGE_SIZE, rows.length - mkdProspectShown)} 条</button>
+             ${rows.length - mkdProspectShown > PROSPECT_PAGE_SIZE ? `<button class="text-button" data-prospect-more="all" type="button">全部展开（会变慢）</button>` : ""}
+           </div>`
+        : ""
+    }
   `;
   renderProspectBulkBar();
 }
+
+// 展开更多行。整池展开会明显变慢，所以按钮上直接写明白。
+document.addEventListener("click", (event) => {
+  const more = event.target.closest("[data-prospect-more]");
+  if (!more) return;
+  event.stopPropagation();
+  mkdProspectShown =
+    more.dataset.prospectMore === "all" ? Number.MAX_SAFE_INTEGER : mkdProspectShown + PROSPECT_PAGE_SIZE;
+  renderProspects();
+});
 
 
 // 该市场适合走哪个渠道——把 MARKET_CHANNEL 的判定摆到台面上，
@@ -1109,10 +1154,30 @@ function renderOutbox() {
       </div>`
     : "";
 
+  /* 已处理邮件封顶。
+
+     队列的勾选状态存在 DOM 的复选框上（不在 state 里），所以**不能**整体分页——
+     一分页，「全选待审/待发」就会悄悄只选当前这一页，而文案上的数字没变。
+     但只有「待审批 / 待发送」才带复选框，已处理的那些不参与任何选择，
+     把它们封顶就完全不影响口径，而排版开销正是它们贡献的大头
+     （5000 条线索时队列要生成 2.2 万个 DOM 节点、渲染 591ms）。 */
+  const DONE_ROWS_CAP = 200;
+  let doneShown = 0;
+  let doneHidden = 0;
+  const visibleItems = items.filter((item) => {
+    if (["待审批", "待发送"].includes(item.status)) return true; // 可勾选的一条不少
+    if (doneShown < DONE_ROWS_CAP) {
+      doneShown += 1;
+      return true;
+    }
+    doneHidden += 1;
+    return false;
+  });
+
   elements.outboxList.innerHTML =
     strip +
     (items.length
-      ? items
+      ? visibleItems
           .map((item) => {
             const selectable = ["待审批", "待发送"].includes(item.status);
             // D3：预检徽章放最左，扫一眼就知道堵点在哪；主题过长在这一行直接提示
@@ -1137,7 +1202,10 @@ function renderOutbox() {
         </article>
       `;
           })
-          .join("")
+          .join("") +
+        (doneHidden
+          ? `<div class="list-more">已处理的邮件只显示最近 ${doneShown} 封，另有 ${doneHidden} 封已收起（待审批和待发送的一封不少，全在上面）</div>`
+          : "")
       : `<div class="empty-state">这一档里暂时没有邮件</div>`);
 }
 

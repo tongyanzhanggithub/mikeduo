@@ -1996,7 +1996,7 @@ if (typeof preflightOutboxItem === "function") {
   const __preflightBase = preflightOutboxItem;
   preflightOutboxItem = function (item) {
     const res = __preflightBase(item);
-    const prospect = state.prospects.find((p) => p.id === item.prospectId);
+    const prospect = prospectById(item.prospectId); // 同上：避免第三次全表扫描
     const v = screeningVerdict(prospect);
     if (!v) return res;
     if (v.level === "block") res.blockers.push(v.text);
@@ -2605,13 +2605,18 @@ const MKD_MOUNTS = [
 
 const __mkdRenderBase = render;
 render = function () {
-  __mkdRenderBase();
-  for (const [name, mount] of MKD_MOUNTS) {
-    try {
-      mount();
-    } catch (error) {
-      // 一个面板挂不上，不该把其余的一起带走
-      console.error(`[mkd] 挂载「${name}」失败`, error);
+  // 整轮渲染共用一份互动索引：质量分/预检要问的「回过信没、开过信没、
+  // 发过没」全部变成 O(1) 查表，而不是每条线索扫一遍全表。
+  // 索引在这一轮同步渲染结束时丢掉，不会读到发送后的旧值。
+  return withScanIndex(() => {
+    __mkdRenderBase();
+    for (const [name, mount] of MKD_MOUNTS) {
+      try {
+        mount();
+      } catch (error) {
+        // 一个面板挂不上，不该把其余的一起带走
+        console.error(`[mkd] 挂载「${name}」失败`, error);
+      }
     }
-  }
+  });
 };
