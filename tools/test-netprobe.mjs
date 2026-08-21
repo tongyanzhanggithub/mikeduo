@@ -462,4 +462,60 @@ check("向导副标题如实说明「这五步不用 key」，不宣称整个产
   assert.match(sub, /跑量|AI 写信/, "必须点出后面要配 key 的场景");
 });
 
+/* -------------------- 打开追踪：端点、隐私、事件匹配 -------------------- */
+
+check("像素 URL 只带不透明 id，绝不带收件人邮箱", () => {
+  // 邮件源码是收件人可见的，中间每一跳也可见。把邮箱写进像素 URL
+  // 等于当面泄漏出去，还会被反垃圾系统当成典型的追踪特征。
+  const ui = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const fn = ui.slice(ui.indexOf("function trackingPixelFor"), ui.indexOf("function trackingReady"));
+  assert.match(fn, /e=\$\{encodeURIComponent\(outboxId\)\}/);
+  // 只看 return 那一行，不用带换行的正则去剥注释——那正是本项目栽过三次的坑
+  const ret = fn.split("return ").pop();
+  assert.equal(/email/i.test(ret), false, "像素 URL 里出现了邮箱");
+});
+
+check("端点地址自带 ?k=token 时，e 参数要用 & 接上", () => {
+  const ui = readFileSync(join(root, "src", "09-netprobe.js"), "utf8");
+  const fn = ui.slice(ui.indexOf("function trackingPixelFor"), ui.indexOf("function trackingReady"));
+  assert.match(fn, /includes\("\?"\) \? "&" : "\?"/);
+});
+
+check("事件匹配认 outbox id，而不是只认邮箱", () => {
+  // 自建端点回报的是 id（因为不能把邮箱放进像素 URL）。
+  // 只按邮箱匹配的话，自建追踪回来的事件一条都对不上。
+  const relay = readFileSync(join(root, "src", "02-inbox-relay.js"), "utf8");
+  const blk = relay.slice(relay.indexOf('const email = (e.email || e.to'), relay.indexOf("if (/bounce|fail"));
+  assert.match(blk, /e\.id \|\| e\.outboxId/);
+  assert.match(blk, /o\.id === evId/);
+  assert.match(blk, /if \(!email && !evId\) return;/, "两个都没有才该跳过");
+});
+
+check("两份端点实现和搭建文档都在，且随包发货", () => {
+  // 只给一句「你自己搭一个端点」等于没给。要给能直接粘的代码。
+  for (const f of ["docs/tracking/cloudflare-worker.js", "docs/tracking/vercel-api-track.js", "docs/邮件打开追踪怎么搭.md"]) {
+    const txt = readFileSync(join(root, f), "utf8");
+    assert.equal(txt.length > 500, true, f + " 太短，不像能用");
+  }
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  assert.equal(pkg.build.files.some((x) => x.includes("docs")), true, "docs 没进打包清单，装机用户点开会找不到");
+});
+
+check("端点必须校验 token——否则任何人都能拉走你客户的打开记录", () => {
+  const cf = readFileSync(join(root, "docs", "tracking", "cloudflare-worker.js"), "utf8");
+  assert.match(cf, /env\.TOKEN/);
+  assert.match(cf, /403/);
+  // 但像素本身不能要 token：邮件客户端请求时带不了
+  const pixelBlock = cf.slice(cf.indexOf('"/t.gif"'), cf.indexOf('"/events"'));
+  assert.equal(/TOKEN/.test(pixelBlock), false, "像素路径不该校验 token，邮件客户端带不了");
+});
+
+check("文档要如实说明打开率天然不准", () => {
+  // 预取会虚高、屏蔽图片会虚低。不说清楚，用户会拿它当精确指标。
+  const doc = readFileSync(join(root, "docs", "邮件打开追踪怎么搭.md"), "utf8");
+  assert.match(doc, /预取/);
+  assert.match(doc, /屏蔽图片|默认屏蔽/);
+  assert.match(doc, /趋势和排序|不适合当精确指标/);
+});
+
 console.log(`\n${passed} 项全部通过`);

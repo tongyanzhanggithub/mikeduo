@@ -624,6 +624,17 @@ function registerIpc() {
     }
   });
 
+  // 打开随包附带的文档（追踪端点搭建指南等）。限定在 docs/ 下且只认文件名，
+  // 不接受路径分隔符——避免被拼出 ../ 之类的东西。
+  ipcMain.handle("mkd:open-doc", (_e, name) => {
+    const safe = String(name || "").replace(/[\/]/g, "");
+    if (!safe || !safe.endsWith(".md")) return { ok: false };
+    const file = path.join(__dirname, "docs", safe);
+    if (!fs.existsSync(file)) return { ok: false, reason: "文档不在安装目录里" };
+    shell.openPath(file);
+    return { ok: true };
+  });
+
   ipcMain.handle("mkd:build-stamp", () => {
     if (app.isPackaged) return null;
     try {

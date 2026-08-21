@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("mkd", {
   fetchPage: (url) => ipcRenderer.invoke("mkd:fetch-page", url),
   netprobeReset: () => ipcRenderer.invoke("mkd:netprobe-reset"),
   buildStamp: () => ipcRenderer.invoke("mkd:build-stamp"),
+  openDoc: (name) => ipcRenderer.invoke("mkd:open-doc", name),
 
   // 合规筛查：本地名单，不联网
   screenEntity: (name) => ipcRenderer.invoke("mkd:screen-entity", name),

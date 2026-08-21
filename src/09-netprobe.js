@@ -978,7 +978,11 @@ function trackingBase() {
 function trackingPixelFor(outboxId) {
   const base = trackingBase();
   if (!base) return "";
+  // 端点地址通常自带 ?k=<token>（防止别人来拉你客户的打开记录），
+  // 所以拼 e 参数要看有没有 ? 再决定用 ? 还是 &。
   const sep = base.includes("?") ? "&" : "?";
+  // 只带本机生成的不透明 id，绝不带收件人邮箱——
+  // 邮件源码是收件人可见的，把邮箱写进 URL 等于当面泄漏出去。
   return `${base}${sep}e=${encodeURIComponent(outboxId)}`;
 }
 
@@ -1425,6 +1429,16 @@ function followupBadgeHtml(prospectId) {
 document.addEventListener(
   "click",
   (e) => {
+    const doc = e.target instanceof Element ? e.target.closest("[data-mkd-doc]") : null;
+    if (doc) {
+      e.preventDefault();
+      e.stopPropagation();
+      const b = mkdBridge();
+      const name = doc.getAttribute("data-mkd-doc");
+      if (b && typeof b.openDoc === "function") b.openDoc(name);
+      else addLog(`打开 docs/${name} 看搭建步骤（浏览器模式下打不开本地文件）`);
+      return;
+    }
     const link = e.target instanceof Element ? e.target.closest("[data-mkd-open]") : null;
     if (link) {
       e.preventDefault();
@@ -1666,6 +1680,14 @@ function mountTrackingSetting() {
     <p class="tracking-note">
       不填就是<strong>没有打开数据</strong>。我们不会给你一个「预估打开率」——那是编的。
       没有数据时，跟进按固定节奏走，界面上会明确标注「测不到，不是没打开」。
+    </p>
+    <p class="tracking-how">
+      端点要你自己搭，十分钟、免费额度够用——我们没有服务器可以替你收像素请求。
+      <button type="button" class="cost-link" data-mkd-doc="邮件打开追踪怎么搭.md">看怎么搭（含两份可直接粘的代码）</button>
+    </p>
+    <p class="tracking-how">
+      还要在「数据源 → 发送状态回传 Webhook」填上同一个端点的
+      <code>/events</code> 地址，软件才拉得到数据。只填这一个框是收不到打开事件的。
     </p>`;
   view.appendChild(card);
   const input = card.querySelector("#mkdTrackingBase");

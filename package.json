@@ -38,6 +38,8 @@
       "preload.js",
       "electron/**/*",
       "data/**/*",
+      "docs/**/*.md",
+      "docs/tracking/**/*",
       "index.html",
       "app.js",
       "styles.css",

@@ -765,8 +765,15 @@ async function pullDeliveryStatus(quiet = false) {
   events.forEach((e) => {
     const email = (e.email || e.to || "").toLowerCase().trim();
     const ev = (e.event || e.status || e.type || "").toLowerCase();
-    if (!email) return;
-    const items = state.outbox.filter((o) => (o.email || "").toLowerCase() === email && o.status === "已发送");
+    // 也认 outbox id。自建的打开追踪端点回报的是 id 而不是邮箱——
+    // 把收件人邮箱明文写进像素 URL 是隐私泄漏：邮件源码里谁都看得见，
+    // 中间的任何一跳也都看得见。id 是本机生成的不透明串，什么都不泄漏。
+    const evId = String(e.id || e.outboxId || e.e || "").trim();
+    if (!email && !evId) return;
+    const items = evId
+      ? state.outbox.filter((o) => o.id === evId)
+      : state.outbox.filter((o) => (o.email || "").toLowerCase() === email && o.status === "已发送");
+    if (!items.length) return;
     const prospect = items[0] && state.prospects.find((p) => p.id === items[0].prospectId);
     if (/bounce|fail|invalid|reject|undeliver|hard/.test(ev)) {
       items.forEach((o) => {

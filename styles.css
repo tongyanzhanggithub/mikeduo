@@ -9417,3 +9417,20 @@ body.dark .scope-note {
   .cost-state.is-on { background: #14532d; color: #86efac; }
   .cost-state.is-off { background: #334155; color: #cbd5e1; }
 }
+
+/* ---------- 追踪端点搭建指引 ---------- */
+.mkd-tracking-card .tracking-how {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted, #64748b);
+}
+.mkd-tracking-card .tracking-how code {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.07);
+}
+@media (prefers-color-scheme: dark) {
+  .mkd-tracking-card .tracking-how code { background: rgba(255, 255, 255, 0.1); }
+}
