@@ -566,6 +566,40 @@ async function txtFrom(server, name) {
   }
 }
 
+// MX 也必须走多解析器，理由和 TXT 完全一样，而且后果更重：
+// verifyEmail 把「没有 MX」判为 invalid，而 invalid 在 F3 里是**一票否决**——
+// DNS 一抖，用户所有邮件都会被拦，理由还是错的（"这个地址不存在"）。
+// 实测就撞上了：github.com / qq.com 在系统解析器下查不到 MX，被判成收不了信。
+async function mxFrom(server, name) {
+  const { Resolver } = require("node:dns").promises;
+  const r = new Resolver({ timeout: 4000, tries: 1 });
+  if (server) r.setServers([server]);
+  try {
+    return { ok: true, records: await r.resolveMx(name) };
+  } catch (e) {
+    // ENODATA / ENOTFOUND 是权威的否定答案："这个域名确实没有 MX"
+    const definite = e && (e.code === "ENODATA" || e.code === "ENOTFOUND");
+    return { ok: definite, definite, records: [], code: e && e.code };
+  }
+}
+
+// 返回 { records, trusted, definitelyNone }
+//   trusted=false          → 谁都没答上来，只能说"查不到"，绝不能说"没有"
+//   definitelyNone=true    → 有解析器明确回答"这个域名没有 MX"
+async function mxChecked(name) {
+  const answers = await Promise.all([mxFrom(null, name), ...PUBLIC_RESOLVERS.map((srv) => mxFrom(srv, name))]);
+  const trusted = answers.slice(1).some((a) => a.ok);
+  const all = [];
+  answers.forEach((a) => a.records.forEach((r) => {
+    if (!all.some((x) => x.exchange === r.exchange)) all.push(r);
+  }));
+  return {
+    records: all,
+    trusted,
+    definitelyNone: all.length === 0 && answers.some((a) => a.definite)
+  };
+}
+
 // 返回 { records, trusted } —— trusted 为假时，"没找到"不可当成"没有"
 async function txtChecked(name) {
   const answers = await Promise.all([txtFrom(null, name), ...PUBLIC_RESOLVERS.map((s) => txtFrom(s, name))]);
@@ -596,7 +630,7 @@ async function domainHealth(domain) {
   }
 
   const [mx, root, dmarcTxt] = await Promise.all([
-    dns.resolveMx(d).catch(() => []),
+    mxChecked(d).then((r) => r.records).catch(() => []),
     txtChecked(d),
     txtChecked(`_dmarc.${d}`)
   ]);
@@ -737,6 +771,22 @@ async function domainHealth(domain) {
 // 很多家用/办公宽带封了出站 25 端口。封了就是探测不了，这时候必须
 // 老实说"探测不了"，绝不能把探测失败当成"地址无效"——那会误杀真客户。
 let port25Blocked = null;
+// 我们的 IP 被公共黑名单收录时，几乎所有大厂都会拒绝探测。记一次，
+// 让上层能只提醒用户一遍，而不是每个地址都报一次同样的话。
+let probeBlockedHint = "";
+
+function extractBlockReason(text) {
+  const t = String(text || "");
+  const m = /(spamhaus|spamcop|barracuda|sorbs|uceprotect)/i.exec(t);
+  if (m) return `你的出口 IP 在 ${m[1]} 黑名单上`;
+  if (/rate limit|too many/i.test(t)) return "触发了对方的频率限制";
+  if (/greylist/i.test(t)) return "对方启用了灰名单";
+  return "";
+}
+
+function probeBlockedNotice() {
+  return probeBlockedHint;
+}
 
 function smtpDialog(host, probes, fromDomain) {
   return new Promise((resolve) => {
@@ -783,7 +833,7 @@ function smtpDialog(host, probes, fromDomain) {
         stage = 3;
       } else {
         const idx = stage - 3;
-        results[probes[idx]] = code;
+        results[probes[idx]] = { code, text: last };
         if (idx + 1 < probes.length) {
           socket.write(`RCPT TO:<${probes[idx + 1]}>\r\n`);
           stage += 1;
@@ -793,6 +843,31 @@ function smtpDialog(host, probes, fromDomain) {
       }
     });
   });
+}
+
+// 550 不等于 550。实测同一个状态码下两种完全相反的含义：
+//
+//   github.com → 550 5.7.1 ... Client host [x.x.x.x] blocked using Spamhaus
+//   qq.com     → 550 Mailbox not found
+//
+// 前者是「你的 IP 被拉黑了，我不跟你说话」，跟地址存不存在毫无关系；
+// 后者才是「这个地址不存在」。把前者判成 invalid，会把真客户的地址拉黑——
+// 而 invalid 在 F3 里是一票否决。所以必须看应答正文，不能只看数字。
+const RCPT_BLOCKED =
+  /5\.7\.\d|spamhaus|spamcop|barracuda|blocked|blacklist|black list|denied|not allowed|policy|reputation|rejected due to|service unavailable|access denied|too many|rate limit|try again|greylist/i;
+const RCPT_NO_SUCH_USER =
+  /5\.1\.[01]|mailbox not found|mailbox unavailable|user unknown|unknown user|no such user|does not exist|doesn't exist|recipient (address )?rejected|invalid recipient|no mailbox|address unknown/i;
+
+// 返回 "invalid" | "blocked" | "unknown"
+function classifyRcpt(code, text) {
+  const t = String(text || "");
+  if (code >= 200 && code < 300) return "ok";
+  // 先判「被拦」——它比「不存在」更常见，而且误判代价更高
+  if (RCPT_BLOCKED.test(t)) return "blocked";
+  if (RCPT_NO_SUCH_USER.test(t)) return "invalid";
+  if (code >= 400 && code < 500) return "unknown"; // 4xx 一律是临时性的
+  // 5xx 但看不出是哪一种：宁可说测不出，也不冤枉一个地址
+  return "unknown";
 }
 
 // 判断一个邮箱地址在对方服务器上是否真实存在。
@@ -807,13 +882,21 @@ async function verifyEmail(email, opts = {}) {
   }
   const domain = addr.split("@")[1];
 
-  let mx = [];
-  try {
-    mx = await dns.resolveMx(domain);
-  } catch {
-    return { email: addr, status: "invalid", reason: "这个域名没有 MX 记录，收不了信" };
+  const mxq = await mxChecked(domain);
+  const mx = mxq.records;
+  if (!mx.length) {
+    // 关键分岔：查得到但确实没有 MX = 这个域名收不了信（invalid）；
+    // 谁都没答上来 = 我们查不出来（unknown）。判错方向的代价不对称——
+    // invalid 会在 F3 里一票否决、拦掉用户所有邮件，而理由还是错的。
+    if (mxq.definitelyNone && mxq.trusted) {
+      return { email: addr, status: "invalid", reason: "这个域名没有 MX 记录，收不了信" };
+    }
+    return {
+      email: addr,
+      status: "unknown",
+      reason: "查不到这个域名的 MX 记录（公共 DNS 都没答上来，可能是网络问题），**不代表地址无效**"
+    };
   }
-  if (!mx.length) return { email: addr, status: "invalid", reason: "这个域名没有 MX 记录，收不了信" };
 
   if (opts.mxOnly) {
     return { email: addr, status: "unknown", reason: "域名可以收信；未做深度探测", mx: mx[0].exchange };
@@ -842,10 +925,28 @@ async function verifyEmail(email, opts = {}) {
     return { email: addr, status: "unknown", reason: `探测中断（${res.reason}）`, mx: host };
   }
 
-  const code = res.results[addr];
-  const randomCode = res.results[random];
+  const hit = res.results[addr] || {};
+  const rnd = res.results[random] || {};
+  const verdict = classifyRcpt(hit.code, hit.text);
+  const rndVerdict = classifyRcpt(rnd.code, rnd.text);
 
-  if (randomCode >= 200 && randomCode < 300) {
+  // 我们的 IP 被对方拒了：这次探测什么都没测到。必须说清楚，
+  // 绝不能让用户以为"查过了、地址没问题"或者"地址无效"。
+  if (verdict === "blocked" || rndVerdict === "blocked") {
+    probeBlockedHint = extractBlockReason(hit.text || rnd.text);
+    return {
+      email: addr,
+      status: "unknown",
+      reason:
+        `对方服务器拒绝了我们的探测${probeBlockedHint ? `（${probeBlockedHint}）` : ""}，` +
+        `**这跟地址存不存在无关**。家用/办公宽带的 IP 常在公共黑名单上，属正常现象。`,
+      blocked: true,
+      mx: host,
+      raw: (hit.text || "").slice(0, 160)
+    };
+  }
+
+  if (rndVerdict === "ok") {
     return {
       email: addr,
       status: "catch-all",
@@ -853,17 +954,30 @@ async function verifyEmail(email, opts = {}) {
       mx: host
     };
   }
-  if (code >= 200 && code < 300) {
+  if (verdict === "ok") {
     return { email: addr, status: "valid", reason: "对方服务器确认这个地址存在", mx: host };
   }
-  if (code >= 500 && code < 600) {
-    return { email: addr, status: "invalid", reason: `对方服务器拒收这个地址（${code}）`, mx: host };
+  if (verdict === "invalid") {
+    return {
+      email: addr,
+      status: "invalid",
+      reason: `对方服务器明确说这个地址不存在（${hit.code}）`,
+      mx: host,
+      raw: (hit.text || "").slice(0, 160)
+    };
   }
-  return { email: addr, status: "unknown", reason: `对方服务器暂时未给出结论（${code}）`, mx: host };
+  return {
+    email: addr,
+    status: "unknown",
+    reason: `对方服务器没给出明确结论（${hit.code || "无应答"}），测不出`,
+    mx: host,
+    raw: (hit.text || "").slice(0, 160)
+  };
 }
 
 function resetProbeState() {
   port25Blocked = null;
+  probeBlockedHint = "";
   robotsCache.clear();
 }
 
@@ -873,6 +987,7 @@ module.exports = {
   domainHealth,
   verifyEmail,
   resetProbeState,
+  probeBlockedNotice,
   // 导出给单测用
   _internals: {
     extractEmails,
@@ -885,6 +1000,8 @@ module.exports = {
     robotsAllows,
     resolveFailCode,
     looksLikeRealPhone,
+    mxChecked,
+    classifyRcpt,
     detectRenderMode,
     visibleTextLength
   }

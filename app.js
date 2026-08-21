@@ -307,7 +307,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "9fdce4da";
+window.__APP_V = "3207dac5";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -16561,11 +16561,13 @@ async function batchProbeEmails(ids) {
 
   runBegin("验证邮箱是否真实存在", `准备探测 ${targets.length} 个地址`);
   const tally = { valid: 0, invalid: 0, "catch-all": 0, unknown: 0 };
+  let blockedNotice = "";
   for (let i = 0; i < targets.length; i += 1) {
     if (!runIsActive()) break; // 用户中止
     runStep(`${i + 1}/${targets.length} · ${maskEmail(targets[i].email)}`);
     const r = await probeProspectEmail(targets[i].id, true);
     if (r) tally[r.status] = (tally[r.status] || 0) + 1;
+    if (r?.blockedNotice && !blockedNotice) blockedNotice = r.blockedNotice;
   }
   saveState();
   render();
@@ -16575,6 +16577,17 @@ async function batchProbeEmails(ids) {
   if (tally.invalid) parts.push(`${tally.invalid} 个不存在`);
   if (tally["catch-all"]) parts.push(`${tally["catch-all"]} 个对方收全部地址`);
   if (tally.unknown) parts.push(`${tally.unknown} 个测不出`);
+
+  // 一堆「测不出」而不说原因，用户只会觉得这功能没用。
+  // 实测最常见的原因是我们自己的出口 IP 在公共黑名单上——家用宽带很普遍，
+  // 跟地址存不存在毫无关系，必须讲明白，而且只讲一次。
+  if (blockedNotice) {
+    addLog(
+      `探测被对方拒绝：${blockedNotice}。这不是地址有问题，也不是软件坏了——` +
+        `家用/办公宽带的出口 IP 常年在公共黑名单上，大厂邮箱会直接拒绝来路不明的探测。` +
+        `这些地址仍按原来的来源可信度判定；要确切验证可以配 Hunter，或换一条出口线路再试。`
+    );
+  }
   runDone(parts.join(" · ") || "没有结论", tally.invalid ? `${tally.invalid} 个发出去就是退信，建议先删掉` : "");
   addLog(`邮箱探测完成：${parts.join("、")}`);
 }

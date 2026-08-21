@@ -540,7 +540,12 @@ function registerIpc() {
   ipcMain.handle("mkd:domain-health", (_e, domain) => throttled(() => netprobe.domainHealth(domain)));
 
   ipcMain.handle("mkd:verify-email", (_e, payload) =>
-    throttled(() => netprobe.verifyEmail(payload?.email, { mxOnly: payload?.mxOnly, fromDomain: payload?.fromDomain }))
+    throttled(async () => {
+      const r = await netprobe.verifyEmail(payload?.email, { mxOnly: payload?.mxOnly, fromDomain: payload?.fromDomain });
+      // 顺带把「我们的 IP 被公共黑名单拦了」这件事带回去，
+      // 让渲染层只提醒用户一次，而不是每个地址都重复同一句
+      return { ...r, blockedNotice: netprobe.probeBlockedNotice() };
+    })
   );
 
   ipcMain.handle("mkd:fetch-page", (_e, url) => throttled(() => netprobe.fetchPage(url)));

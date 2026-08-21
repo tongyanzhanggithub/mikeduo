@@ -373,4 +373,62 @@ check("真实号码的各种写法都要认——宁可漏也不能瞎认，但�
   }
 });
 
+/* ---------- RCPT 判定：550 不等于 550（真网实测出来的） ---------- */
+
+check("被黑名单拦下 ≠ 地址不存在——这两个都是 550，含义完全相反", () => {
+  // 真网实测拿到的两条原文：
+  //   github.com → 550 5.7.1 ... Client host [x.x.x.x] blocked using Spamhaus
+  //   qq.com     → 550 Mailbox not found
+  // 把前者判成 invalid 会把真客户的地址拉黑，而 invalid 在 F3 里是一票否决。
+  const { classifyRcpt } = np._internals;
+  assert.equal(
+    classifyRcpt(550, "550 5.7.1 Service unavailable, Client host [1.2.3.4] blocked using Spamhaus"),
+    "blocked"
+  );
+  assert.equal(classifyRcpt(550, "550 Mailbox not found."), "invalid");
+});
+
+check("各种拒绝话术都要认出是「拦我们」而不是「地址不存在」", () => {
+  const { classifyRcpt } = np._internals;
+  for (const t of [
+    "550 5.7.1 Access denied, banned sending IP",
+    "451 4.7.1 Greylisting in effect",
+    "421 Too many connections",
+    "550 rejected due to policy reasons",
+    "554 5.7.1 Service unavailable; blacklisted"
+  ]) {
+    assert.equal(classifyRcpt(parseInt(t, 10), t), "blocked", t);
+  }
+});
+
+check("明确说不存在的才判 invalid", () => {
+  const { classifyRcpt } = np._internals;
+  for (const t of [
+    "550 5.1.1 The email account that you tried to reach does not exist",
+    "550 Mailbox unavailable",
+    "550 User unknown",
+    "550 5.1.0 Recipient address rejected"
+  ]) {
+    assert.equal(classifyRcpt(parseInt(t, 10), t), "invalid", t);
+  }
+});
+
+check("看不出是哪一种就判 unknown——宁可说测不出，也不冤枉一个地址", () => {
+  const { classifyRcpt } = np._internals;
+  assert.equal(classifyRcpt(550, "550 Requested action not taken"), "unknown");
+  assert.equal(classifyRcpt(452, "452 Insufficient storage"), "unknown");
+  assert.equal(classifyRcpt(250, "250 2.1.5 OK"), "ok");
+});
+
+check("MX 查询走多解析器，且区分「确实没有」和「查不到」", () => {
+  // 实测撞过：系统解析器查不到 github.com / qq.com 的 MX，被判成「收不了信」。
+  // 而 invalid 在 F3 里一票否决——DNS 一抖，用户所有邮件都会被拦。
+  const src = readFileSync(join(root, "electron", "netprobe.js"), "utf8");
+  assert.match(src, /async function mxChecked/);
+  assert.match(src, /definitelyNone/);
+  const vf = src.slice(src.indexOf("async function verifyEmail"), src.indexOf("function resetProbeState"));
+  assert.equal(/dns\.resolveMx/.test(vf), false, "verifyEmail 里还留着裸的系统解析器");
+  assert.match(vf, /mxq\.definitelyNone && mxq\.trusted/, "必须两个条件都满足才敢判 invalid");
+});
+
 console.log(`\n${passed} 项全部通过`);

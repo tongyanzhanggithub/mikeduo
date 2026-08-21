@@ -6,7 +6,7 @@
 
 数据不出本机 · AI 找客户写信认意图 · 人只做审批和谈单
 
-![平台](https://img.shields.io/badge/平台-Windows%20x64-2563eb) ![形态](https://img.shields.io/badge/形态-Electron%20桌面应用-0f9f8f) ![授权](https://img.shields.io/badge/授权-买断制%20·%20离线激活-16845f) ![测试](https://img.shields.io/badge/自动化测试-197%20项-16845f)
+![平台](https://img.shields.io/badge/平台-Windows%20x64-2563eb) ![形态](https://img.shields.io/badge/形态-Electron%20桌面应用-0f9f8f) ![授权](https://img.shields.io/badge/授权-买断制%20·%20离线激活-16845f) ![测试](https://img.shields.io/badge/自动化测试-202%20项-16845f)
 
 </div>
 
@@ -439,11 +439,11 @@ node build.mjs
 
 把 `src/*.js` 按文件名顺序拼成 `app.js`，并算一个 8 位版本戳同步写入三处（`window.__APP_V`、`index.html` 的 `?v=`、缓存哨兵）。版本戳的哈希**同时覆盖 JS、CSS 和品牌资源**，所以只改样式也能可靠刷新缓存。
 
-自动化验收共 **197 项**，15 个套件全绿：
+自动化验收共 **202 项**，15 个套件全绿：
 
 | 命令 | 项数 | 覆盖 |
 |---|---|---|
-| `node tools/test-netprobe.mjs` | 37 | 官网抓邮箱与事实、robots 判定、F3 判定优先级（探测结果压过来源可信度）、行为分支（测不到 ≠ 没打开）、校准不误伤自己的产品词 |
+| `node tools/test-netprobe.mjs` | 42 | 官网抓邮箱与事实、robots 判定、F3 判定优先级（探测结果压过来源可信度）、行为分支（测不到 ≠ 没打开）、校准不误伤自己的产品词 |
 | `node tools/test-send-guard.mjs` | 22 | 邮箱验证状态判定、试用容量闸门、欧盟识别、退订元素检测、预热起算、诊断脱敏、环形缓冲 |
 | `npm run test:mail` | 19 | 内置 SMTP/IMAP：连接诊断、退信 DSN 地址提取、收信解析 |
 | `node tools/test-screening.mjs` | 15 | 制裁名单归一化匹配（少个逗号仍命中）、CMIC 不是贸易禁令、三条法律线分别说后果、正常客户零误伤 |
