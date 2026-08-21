@@ -6,7 +6,7 @@
 
 数据不出本机 · AI 找客户写信认意图 · 人只做审批和谈单
 
-![平台](https://img.shields.io/badge/平台-Windows%20x64-2563eb) ![形态](https://img.shields.io/badge/形态-Electron%20桌面应用-0f9f8f) ![授权](https://img.shields.io/badge/授权-买断制%20·%20离线激活-16845f) ![测试](https://img.shields.io/badge/自动化测试-217%20项-16845f)
+![平台](https://img.shields.io/badge/平台-Windows%20x64-2563eb) ![形态](https://img.shields.io/badge/形态-Electron%20桌面应用-0f9f8f) ![授权](https://img.shields.io/badge/授权-买断制%20·%20离线激活-16845f) ![测试](https://img.shields.io/badge/自动化测试-223%20项-16845f)
 
 </div>
 
@@ -463,7 +463,7 @@ node build.mjs
 
 把 `src/*.js` 按文件名顺序拼成 `app.js`，并算一个 8 位版本戳同步写入三处（`window.__APP_V`、`index.html` 的 `?v=`、缓存哨兵）。版本戳的哈希**同时覆盖 JS、CSS 和品牌资源**，所以只改样式也能可靠刷新缓存。
 
-自动化验收共 **217 项**，15 个套件全绿：
+自动化验收共 **223 项**，16 个套件全绿：
 
 | 命令 | 项数 | 覆盖 |
 |---|---|---|
@@ -481,6 +481,7 @@ node build.mjs
 | `node tools/test-build-stamp.mjs` | 8 | 构建过期检测：版本戳不在前 4096 字节，读取不得截断 |
 | `node tools/test-update-gate.mjs` | 7 | 占位符更新源不得带进发布版 |
 | `npm run test:desktop` | 7 | 真 Electron：机器码、safeStorage 加密落盘与回读、篡改回退、备份滚动 |
+| `node tools/test-journey.mjs` | 6 | **端到端旅程**：粘贴导入 → 入池 → F3 判定 → 一票否决 → 试用锁定豁免 |
 | `node tools/test-source-hygiene.mjs` | 2 | 来源卫生 |
 
 多数套件用 `node:vm` 把**真源码**放进沙箱跑，不复制一份逻辑来测——复制出来的逻辑测不出真实现的 bug。
