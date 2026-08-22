@@ -453,7 +453,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "257eeae5";
+window.__APP_V = "f14ff894";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -2563,6 +2563,43 @@ function outboxGuidanceHtml(tally, canBatchSend) {
   return text ? `<p class="outbox-guidance">${escapeHtml(text)}</p>` : "";
 }
 
+/* 发信队列的勾选状态。
+
+   原先只存在 DOM 的复选框上，有两个后果：
+
+   一是**每次 render() 都会静默清空勾选**——重建 innerHTML 时复选框是全新的、
+   没有 checked。用户勾好十几封，后台自动驾驶跑一轮触发重渲，勾选就没了，
+   而界面上没有任何提示，人会以为还勾着。
+
+   二是列表没法分页——一分页，「全选待审/待发 (N)」就只选当前这一页，
+   而那个 N 还是全量的数字。
+
+   搬进 state 后两个问题一起解决：勾选跨重渲存活，全选按 mkdActionableOutboxIds
+   （全部待审/待发）算，而不是数 DOM 里有几个框。 */
+const mkdSelectedOutbox = new Set();
+let mkdActionableOutboxIds = [];
+
+const OUTBOX_PAGE_SIZE = 200;
+let mkdOutboxShown = OUTBOX_PAGE_SIZE;
+let mkdOutboxFilterSig = null;
+
+// 勾选变化后就地更新受影响的那两处，不整轮重渲——重渲会把列表滚动位置带回顶部
+function syncOutboxSelectionUi() {
+  const total = mkdActionableOutboxIds.length;
+  const n = mkdSelectedOutbox.size;
+  const all = document.getElementById("outboxSelectAll");
+  if (all) {
+    all.checked = total > 0 && n === total;
+    all.indeterminate = n > 0 && n < total; // 选了一部分，别显示成"全选了"
+  }
+  const btn = document.getElementById("batchApproveSend");
+  if (btn) {
+    const span = btn.querySelector("span");
+    if (span) span.textContent = n ? `批准并发送（已选 ${n}）` : "批准并发送（先勾选）";
+    btn.disabled = n === 0;
+  }
+}
+
 function renderOutbox() {
   if (elements.queueFollowups) {
     const dueN = dueFollowupProspects().length;
@@ -2593,6 +2630,15 @@ function renderOutbox() {
   actionable.forEach((i) => {
     tally[kindOf(i)] += 1;
   });
+  // 全选的口径 = 全部待审/待发，不受分页影响
+  mkdActionableOutboxIds = actionable.map((i) => i.id);
+  // 已经不在待审/待发里的（发出去了、被删了）要从勾选里剔掉，否则计数会虚高
+  const actionableSet = new Set(mkdActionableOutboxIds);
+  [...mkdSelectedOutbox].forEach((id) => {
+    if (!actionableSet.has(id)) mkdSelectedOutbox.delete(id);
+  });
+  const selectedN = mkdSelectedOutbox.size;
+
   const canBatchSend = tally.ok + tally.warn;
   const blockedOnly = actionable.length > 0 && canBatchSend === 0 && tally.block > 0;
   const hasApprovedSendable = all.some((item) => item.status === "待发送" && preflightOutboxItem(item).ok);
@@ -2611,7 +2657,7 @@ function renderOutbox() {
   const strip = actionable.length
     ? `<div class="outbox-controls">
         ${outboxGuidanceHtml(tally, canBatchSend)}
-        <label class="outbox-check-all"><input type="checkbox" id="outboxSelectAll" /><span>全选待审/待发 (${actionable.length})</span></label>
+        <label class="outbox-check-all"><input type="checkbox" id="outboxSelectAll" ${selectedN && selectedN === actionable.length ? "checked" : ""} /><span>全选待审/待发 (${actionable.length})</span></label>
         <div class="pf-segments">
           ${seg("ok", "✓", "无提示", tally.ok, "is-ok")}
           ${seg("warn", "⚠", "有提示", tally.warn, "is-warn")}
@@ -2621,30 +2667,22 @@ function renderOutbox() {
         ${
           blockedOnly
             ? `<button class="primary-button" data-empty-action="verify-blocked" type="button"><svg><use href="#icon-check" /></svg><span>批量验证邮箱（${tally.block}）</span></button>`
-            : `<button class="primary-button" id="batchApproveSend" type="button" ${canBatchSend ? "" : "disabled"}><svg><use href="#icon-check" /></svg><span>批准并发送（${canBatchSend}）</span></button>`
+            : `<button class="primary-button" id="batchApproveSend" type="button" ${selectedN ? "" : "disabled"}><svg><use href="#icon-check" /></svg><span>${selectedN ? `批准并发送（已选 ${selectedN}）` : "批准并发送（先勾选）"}</span></button>`
         }
       </div>`
     : "";
 
-  /* 已处理邮件封顶。
+  /* 队列分页。
 
-     队列的勾选状态存在 DOM 的复选框上（不在 state 里），所以**不能**整体分页——
-     一分页，「全选待审/待发」就会悄悄只选当前这一页，而文案上的数字没变。
-     但只有「待审批 / 待发送」才带复选框，已处理的那些不参与任何选择，
-     把它们封顶就完全不影响口径，而排版开销正是它们贡献的大头
-     （5000 条线索时队列要生成 2.2 万个 DOM 节点、渲染 591ms）。 */
-  const DONE_ROWS_CAP = 200;
-  let doneShown = 0;
-  let doneHidden = 0;
-  const visibleItems = items.filter((item) => {
-    if (["待审批", "待发送"].includes(item.status)) return true; // 可勾选的一条不少
-    if (doneShown < DONE_ROWS_CAP) {
-      doneShown += 1;
-      return true;
-    }
-    doneHidden += 1;
-    return false;
-  });
+     勾选已经在 state 里、全选按 mkdActionableOutboxIds 算，所以整体分页是安全的：
+     没渲染出来的条目照样能被全选、能被批量发送。
+     （上一版只能封顶不带复选框的已处理条目，5000 条时队列还要 469ms。） */
+  if (filter !== mkdOutboxFilterSig) {
+    mkdOutboxFilterSig = filter; // 换档位回到第一页，别停在"已展开 800 条"
+    mkdOutboxShown = OUTBOX_PAGE_SIZE;
+  }
+  const visibleItems = items.slice(0, mkdOutboxShown);
+  const hiddenN = items.length - visibleItems.length;
 
   elements.outboxList.innerHTML =
     strip +
@@ -2658,7 +2696,7 @@ function renderOutbox() {
             return `
         <article class="outbox-item ${selectable ? "selectable" : ""} ${expanded ? "is-open" : ""}">
           <span class="outbox-pf">${selectable ? preflightBadge(item) : `<span class="pf-badge pf-done">已处理</span>`}</span>
-          ${selectable ? `<input type="checkbox" data-outbox-id="${item.id}" aria-label="选择${escapeHtml(item.status)}邮件" />` : `<span class="outbox-spacer"></span>`}
+          ${selectable ? `<input type="checkbox" data-outbox-id="${item.id}" ${mkdSelectedOutbox.has(item.id) ? "checked" : ""} aria-label="选择${escapeHtml(item.status)}邮件" />` : `<span class="outbox-spacer"></span>`}
           <span class="outbox-main">
             <strong>${escapeHtml(item.company)} · ${escapeHtml(item.label)}</strong>
             <span>${escapeHtml(item.email || "（缺邮箱）")} · ${item.dueDate} · ${escapeHtml(item.subject)}${
@@ -2675,11 +2713,23 @@ function renderOutbox() {
       `;
           })
           .join("") +
-        (doneHidden
-          ? `<div class="list-more">已处理的邮件只显示最近 ${doneShown} 封，另有 ${doneHidden} 封已收起（待审批和待发送的一封不少，全在上面）</div>`
+        (hiddenN > 0
+          ? `<div class="list-more">
+               <span>已显示 ${visibleItems.length} / ${items.length} 封（「全选待审/待发」和批量发送按全部 ${mkdActionableOutboxIds.length} 封算，不受这里影响）</span>
+               <button class="ghost-button" data-outbox-more="1" type="button">再显示 ${Math.min(OUTBOX_PAGE_SIZE, hiddenN)} 封</button>
+             </div>`
           : "")
       : `<div class="empty-state">这一档里暂时没有邮件</div>`);
+  syncOutboxSelectionUi();
 }
+
+// 展开更多队列条目
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-outbox-more]")) return;
+  event.stopPropagation();
+  mkdOutboxShown += OUTBOX_PAGE_SIZE;
+  renderOutbox();
+});
 
 function renderWhatsappQueue() {
   const queue = activeWhatsappQueueItems();
@@ -2947,6 +2997,20 @@ function channelBadge(channel) {
     : `<span class="channel-badge email">邮件</span>`;
 }
 
+/* 会话列表分页。收件箱是单选（selectedConversationId），不涉及任何批量口径，
+   所以直接封顶就行——但要留搜索/筛选的出口：找不到的会话靠上面的搜索框定位。
+   5000 条线索时收件箱要渲染 1.3 万个节点、309ms。 */
+const CONVERSATION_PAGE_SIZE = 150;
+let mkdConversationShown = CONVERSATION_PAGE_SIZE;
+let mkdConversationFilterSig = null;
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-conversation-more]")) return;
+  event.stopPropagation();
+  mkdConversationShown += CONVERSATION_PAGE_SIZE;
+  renderInbox();
+});
+
 function renderConversationList(conversations) {
   const filter = elements.conversationFilter.value.trim().toLowerCase();
   const statusFilter = elements.conversationStatusFilter.value;
@@ -2971,7 +3035,16 @@ function renderConversationList(conversations) {
     return;
   }
 
-  elements.conversationList.innerHTML = filtered
+  // 换了搜索词或筛选档就回到第一页
+  const sig = `${filter}|${statusFilter}`;
+  if (sig !== mkdConversationFilterSig) {
+    mkdConversationFilterSig = sig;
+    mkdConversationShown = CONVERSATION_PAGE_SIZE;
+  }
+  const visible = filtered.slice(0, mkdConversationShown);
+  const hiddenN = filtered.length - visible.length;
+
+  elements.conversationList.innerHTML = visible
     .map((conversation) => {
       const active = conversation.prospectId === state.selectedConversationId ? "is-active" : "";
       const channels = [...conversation.channels].map(channelBadge).join("");
@@ -2998,7 +3071,13 @@ function renderConversationList(conversations) {
         </button>
       `;
     })
-    .join("");
+    .join("") +
+    (hiddenN > 0
+      ? `<div class="list-more">
+           <span>已显示 ${visible.length} / ${filtered.length} 条会话</span>
+           <button class="ghost-button" data-conversation-more="1" type="button">再显示 ${Math.min(CONVERSATION_PAGE_SIZE, hiddenN)} 条</button>
+         </div>`
+      : "");
 }
 
 function renderTimeline(conversation) {
@@ -11848,12 +11927,12 @@ async function sendOutboxItems(items) {
 
 // 批量审批发送：对勾选的待发/待审批邮件跑发送预检，放行的立即发送，拦截的保留并提示
 async function batchApproveSend() {
-  const checkedIds = [...elements.outboxList.querySelectorAll("input[data-outbox-id]:checked")].map((c) => c.dataset.outboxId);
-  if (!checkedIds.length) {
+  // 从 state 读而不是数 DOM：列表分页后，没渲染出来的那些也照样算数
+  if (!mkdSelectedOutbox.size) {
     addLog("请先勾选要审批发送的邮件（可点「全选待审/待发」）");
     return 0;
   }
-  const items = activeOutboxItems().filter((o) => checkedIds.includes(o.id));
+  const items = activeOutboxItems().filter((o) => mkdSelectedOutbox.has(o.id));
   const sendable = [];
   const blocked = [];
   items.forEach((it) => {
@@ -13150,11 +13229,20 @@ elements.outboxList.addEventListener("click", (event) => {
   }
 });
 elements.outboxList.addEventListener("change", (event) => {
+  // 全选：按**全部待审/待发**算，不是数当前页渲染出来的复选框。
+  // 列表分页后这两者不再等价，数 DOM 会让"全选"悄悄缩水成"全选本页"。
   if (event.target.id === "outboxSelectAll") {
-    const checked = event.target.checked;
-    elements.outboxList.querySelectorAll("input[data-outbox-id]").forEach((box) => {
-      box.checked = checked;
-    });
+    const on = event.target.checked;
+    mkdActionableOutboxIds.forEach((id) => (on ? mkdSelectedOutbox.add(id) : mkdSelectedOutbox.delete(id)));
+    elements.outboxList.querySelectorAll("input[data-outbox-id]").forEach((box) => (box.checked = on));
+    syncOutboxSelectionUi();
+    return;
+  }
+  const box = event.target.closest("input[data-outbox-id]");
+  if (box) {
+    if (box.checked) mkdSelectedOutbox.add(box.dataset.outboxId);
+    else mkdSelectedOutbox.delete(box.dataset.outboxId);
+    syncOutboxSelectionUi();
   }
 });
 

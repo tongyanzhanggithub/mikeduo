@@ -1200,12 +1200,12 @@ async function sendOutboxItems(items) {
 
 // 批量审批发送：对勾选的待发/待审批邮件跑发送预检，放行的立即发送，拦截的保留并提示
 async function batchApproveSend() {
-  const checkedIds = [...elements.outboxList.querySelectorAll("input[data-outbox-id]:checked")].map((c) => c.dataset.outboxId);
-  if (!checkedIds.length) {
+  // 从 state 读而不是数 DOM：列表分页后，没渲染出来的那些也照样算数
+  if (!mkdSelectedOutbox.size) {
     addLog("请先勾选要审批发送的邮件（可点「全选待审/待发」）");
     return 0;
   }
-  const items = activeOutboxItems().filter((o) => checkedIds.includes(o.id));
+  const items = activeOutboxItems().filter((o) => mkdSelectedOutbox.has(o.id));
   const sendable = [];
   const blocked = [];
   items.forEach((it) => {
@@ -2502,11 +2502,20 @@ elements.outboxList.addEventListener("click", (event) => {
   }
 });
 elements.outboxList.addEventListener("change", (event) => {
+  // 全选：按**全部待审/待发**算，不是数当前页渲染出来的复选框。
+  // 列表分页后这两者不再等价，数 DOM 会让"全选"悄悄缩水成"全选本页"。
   if (event.target.id === "outboxSelectAll") {
-    const checked = event.target.checked;
-    elements.outboxList.querySelectorAll("input[data-outbox-id]").forEach((box) => {
-      box.checked = checked;
-    });
+    const on = event.target.checked;
+    mkdActionableOutboxIds.forEach((id) => (on ? mkdSelectedOutbox.add(id) : mkdSelectedOutbox.delete(id)));
+    elements.outboxList.querySelectorAll("input[data-outbox-id]").forEach((box) => (box.checked = on));
+    syncOutboxSelectionUi();
+    return;
+  }
+  const box = event.target.closest("input[data-outbox-id]");
+  if (box) {
+    if (box.checked) mkdSelectedOutbox.add(box.dataset.outboxId);
+    else mkdSelectedOutbox.delete(box.dataset.outboxId);
+    syncOutboxSelectionUi();
   }
 });
 

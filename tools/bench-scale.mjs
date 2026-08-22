@@ -128,7 +128,18 @@ try {
   runInContext(readFileSync(join(root, "app.js"), "utf8"), ctx, { filename: "app.js" });
   // app.js 顶层的 let/const 是词法绑定，不会成为 vm 全局对象的属性，
   // 用一段同上下文的尾巴把基准要用的引用导出来
-  runInContext("globalThis.__bench = { state, elements };", ctx, { filename: "bench-export.js" });
+  runInContext(
+    // 用 getter 而不是快照：mkdActionableOutboxIds / mkdFilteredProspectIds 每次渲染都会被重新赋值
+    `globalThis.__bench = {
+       state, elements,
+       selectedOutbox: mkdSelectedOutbox,
+       OUTBOX_PAGE_SIZE, PROSPECT_PAGE_SIZE, CONVERSATION_PAGE_SIZE,
+       get actionableOutboxIds() { return mkdActionableOutboxIds; },
+       get filteredProspectIds() { return mkdFilteredProspectIds; }
+     };`,
+    ctx,
+    { filename: "bench-export.js" }
+  );
 } catch (error) {
   loadError = error;
 }
@@ -266,6 +277,51 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
   }
   console.log(`  ✓ 分支覆盖：${MUST_HIT.length} 条关键分支均已触发`);
 
+  /* 发信队列：分页不能缩小「全选待审/待发」和批量发送的范围。
+
+     这一条曾经是真的会错——勾选原本只存在 DOM 的复选框上，
+     一分页就只能选到当前页；顺带还有个更隐蔽的毛病：每次 render()
+     重建 innerHTML，勾好的选择会静默清零。搬进 state 后两条都堵住了，
+     这里盯着别再回去。 */
+  // 这项要用大一点的数据集：队列必须真的超过一页，否则比对是空的
+  Object.assign(ctx.__bench.state, buildState(2000));
+  ctx.withScanIndex(() => ctx.renderOutbox());
+  const outHtml = String(ctx.__bench.elements?.outboxList?.innerHTML || "");
+  const renderedRows = (outHtml.match(/class="outbox-item/g) || []).length;
+  const cap = ctx.__bench.OUTBOX_PAGE_SIZE;
+  const actionable = st.outbox.filter((o) => ["待审批", "待发送"].includes(o.status));
+
+  if (renderedRows > cap) {
+    console.log(`  ✗ 队列渲染了 ${renderedRows} 条，超过上限 ${cap}`);
+    process.exit(1);
+  }
+  if (ctx.__bench.actionableOutboxIds.length !== actionable.length) {
+    console.log(`  ✗ 全选口径 ${ctx.__bench.actionableOutboxIds.length} ≠ 全部待审/待发 ${actionable.length}`);
+    process.exit(1);
+  }
+  if (renderedRows >= actionable.length) {
+    console.log(`  ✗ 造的数据里队列没超过一页（${actionable.length} 封），这条比对是空的`);
+    process.exit(1);
+  }
+  // 全选后，批量发送解析出来的条目必须包含没渲染出来的那些
+  ctx.__bench.selectedOutbox.clear();
+  ctx.__bench.actionableOutboxIds.forEach((id) => ctx.__bench.selectedOutbox.add(id));
+  const resolved = ctx.activeOutboxItems().filter((o) => ctx.__bench.selectedOutbox.has(o.id));
+  // 前缀 data-outbox-id=" 是 16 个字符——切错一位会让"已渲染"集合为空，
+  // 于是下面的比对永远成立，守卫变成摆设。所以再核对一次数量对不对。
+  const renderedIds = new Set([...outHtml.matchAll(/data-outbox-id="([^"]+)"/g)].map((m) => m[1]));
+  if (!renderedIds.size) {
+    console.log("  ✗ 从渲染结果里一个队列 id 都没抓到，这条比对是空的");
+    process.exit(1);
+  }
+  const unrendered = resolved.filter((o) => !renderedIds.has(o.id)).length;
+  if (resolved.length !== actionable.length || unrendered === 0) {
+    console.log(`  ✗ 批量发送只解析出 ${resolved.length}/${actionable.length} 封，其中未渲染的 ${unrendered} 封 —— 分页把范围改小了`);
+    process.exit(1);
+  }
+  ctx.__bench.selectedOutbox.clear();
+  console.log(`  ✓ 队列口径：界面 ${renderedRows} 条，全选与批量发送覆盖全部 ${actionable.length} 封（含未渲染的 ${unrendered} 封）`);
+
   // 渲染结束必须把索引丢干净，否则下一次渲染会读到旧数据
   if (ctx.scanIndex() !== null) {
     console.log("  ✗ 渲染作用域退出后索引没清空 —— 会读到过期数据");
@@ -316,7 +372,7 @@ for (const n of SIZES) {
     ctx.withScanIndex(() => ctx.renderProspects());
     const html = String(table?.innerHTML || "");
     const rendered = (html.match(/data-prospect-id=/g) || []).length;
-    const cap = ctx.PROSPECT_PAGE_SIZE || 200;
+    const cap = ctx.__bench.PROSPECT_PAGE_SIZE;
     const expect = Math.min(n, cap);
     if (rendered !== expect) {
       row.renderNote = `渲染出 ${rendered} 行，应为 ${expect} 行（上限 ${cap}）`;

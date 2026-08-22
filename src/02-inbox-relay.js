@@ -200,6 +200,20 @@ function channelBadge(channel) {
     : `<span class="channel-badge email">邮件</span>`;
 }
 
+/* 会话列表分页。收件箱是单选（selectedConversationId），不涉及任何批量口径，
+   所以直接封顶就行——但要留搜索/筛选的出口：找不到的会话靠上面的搜索框定位。
+   5000 条线索时收件箱要渲染 1.3 万个节点、309ms。 */
+const CONVERSATION_PAGE_SIZE = 150;
+let mkdConversationShown = CONVERSATION_PAGE_SIZE;
+let mkdConversationFilterSig = null;
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-conversation-more]")) return;
+  event.stopPropagation();
+  mkdConversationShown += CONVERSATION_PAGE_SIZE;
+  renderInbox();
+});
+
 function renderConversationList(conversations) {
   const filter = elements.conversationFilter.value.trim().toLowerCase();
   const statusFilter = elements.conversationStatusFilter.value;
@@ -224,7 +238,16 @@ function renderConversationList(conversations) {
     return;
   }
 
-  elements.conversationList.innerHTML = filtered
+  // 换了搜索词或筛选档就回到第一页
+  const sig = `${filter}|${statusFilter}`;
+  if (sig !== mkdConversationFilterSig) {
+    mkdConversationFilterSig = sig;
+    mkdConversationShown = CONVERSATION_PAGE_SIZE;
+  }
+  const visible = filtered.slice(0, mkdConversationShown);
+  const hiddenN = filtered.length - visible.length;
+
+  elements.conversationList.innerHTML = visible
     .map((conversation) => {
       const active = conversation.prospectId === state.selectedConversationId ? "is-active" : "";
       const channels = [...conversation.channels].map(channelBadge).join("");
@@ -251,7 +274,13 @@ function renderConversationList(conversations) {
         </button>
       `;
     })
-    .join("");
+    .join("") +
+    (hiddenN > 0
+      ? `<div class="list-more">
+           <span>已显示 ${visible.length} / ${filtered.length} 条会话</span>
+           <button class="ghost-button" data-conversation-more="1" type="button">再显示 ${Math.min(CONVERSATION_PAGE_SIZE, hiddenN)} 条</button>
+         </div>`
+      : "");
 }
 
 function renderTimeline(conversation) {
