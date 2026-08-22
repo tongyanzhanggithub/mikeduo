@@ -176,6 +176,7 @@ const elements = {
   runStatusTime: $("#runStatusTime"),
   runStatusAction: $("#runStatusAction"),
   runStatusClose: $("#runStatusClose"),
+  storageAlert: $("#storageAlert"),
   exportJson: $("#exportJson"),
   metricGrid: $("#metricGrid"),
   workflowSteps: $("#workflowSteps"),
@@ -826,6 +827,7 @@ function mergeManagement(fallback, current) {
 }
 
 let storageWriteFailed = false;
+let storageFailedSince = 0;
 
 // 持久化改用防抖：把一次操作里连续多次 saveState 合并成一次写盘（整份 state 的
 // JSON.stringify 在数据量大时开销明显）。为避免防抖丢数据，做了三重兜底：
@@ -848,14 +850,47 @@ function flushState() {
   saveFirstPendingAt = 0;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    storageWriteFailed = false;
+    if (storageWriteFailed) {
+      storageWriteFailed = false;
+      storageFailedSince = 0;
+      renderStorageAlert(); // 腾出空间后恢复正常，告警自己消失
+      addLog("本地存储恢复正常，改动已重新开始保存");
+    }
   } catch (error) {
-    // localStorage 满（约 5MB）或被禁用：改动会丢，必须立刻让用户知道并引导备份
+    /* 本地存储写不进去了（写满或被禁用）。实测浏览器这边上限约 50MB、
+       单条线索约 1.1KB，也就是三万条上下才撞墙；但不同环境差别很大
+       （有的环境只给 5MB），所以这里不猜阈值，只处理"真的失败了"这件事。
+
+       关键在于**告警必须常驻**。原来只往日志里写一行：日志会滚走、吐司会消失，
+       而失败之后每一次改动都在丢。用户可能继续工作几小时，关掉应用才发现
+       全没了——而且中途没有任何迹象。 */
     if (!storageWriteFailed) {
       storageWriteFailed = true;
+      storageFailedSince = Date.now();
       addLog("⛔ 本地存储已满或不可用，最新改动没有保存！请立即点右上角「导出全部数据」备份，然后删除老线索/已发邮件释放空间");
     }
+    renderStorageAlert();
   }
+}
+
+// 常驻告警条。写失败期间一直显示，写成功后自动消失。
+function renderStorageAlert() {
+  const bar = elements?.storageAlert;
+  if (!bar) return;
+  if (!storageWriteFailed) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    return;
+  }
+  const mins = storageFailedSince ? Math.max(1, Math.round((Date.now() - storageFailedSince) / 60000)) : 1;
+  bar.hidden = false;
+  bar.innerHTML =
+    `<span class="storage-alert-dot" aria-hidden="true">⛔</span>` +
+    `<div class="storage-alert-body">` +
+    `<strong>改动没有保存</strong>` +
+    `<span>本地存储写不进去了（已持续约 ${mins} 分钟）。这段时间的所有改动只在内存里，关掉窗口就会丢。</span>` +
+    `</div>` +
+    `<button class="storage-alert-action" data-storage-alert="export" type="button">立即导出备份</button>`;
 }
 
 // 防抖入口：绝大多数调用点用它，攒一小会儿再合并写盘，最长不超过 SAVE_MAX_WAIT。

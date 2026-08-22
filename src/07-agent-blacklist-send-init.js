@@ -1157,10 +1157,37 @@ function sentTodayCount() {
   return state.outbox.filter((o) => o.status === "已发送" && (o.sentAt || "").slice(0, 10) === today).length;
 }
 
+/* 日限是保护发信域名信誉的安全阀，所以取值出错时必须往「少发」的方向倒。
+
+   原来是 `state.x || 默认值`，有两个方向都不对的地方：
+
+   · 设成 **0**（想暂停发信）会被 `||` 当成假值，回落成 80/300 —— 想停发反而放开了。
+     界面上进不来（输入框 min=1、读表单时 clamp 到 [1,500]），但**恢复一份被手改过
+     或损坏的备份可以**，而 normalizeStoredState 不清洗数值。
+   · 值是 "abc" 这类脏数据时算出 NaN，`list.slice(0, NaN)` 得到空数组——
+     一封都发不出去，而提示写着"今日额度剩 NaN 封"。
+
+   现在：没配过（undefined/null/空串）才用默认值；数字就按数字算，0 就是 0；
+   彻底是脏数据的用默认值并记一次日志，不静默。 */
+function dailyLimitOf(value, fallback, label) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    if (!mkdBadLimitNoticed.has(label)) {
+      mkdBadLimitNoticed.add(label);
+      if (typeof addLog === "function") addLog(`${label}的日限值不是数字（${String(value)}），已按默认 ${fallback} 封处理——去「设置」里重填一下`);
+    }
+    return fallback;
+  }
+  return Math.max(0, Math.floor(n)); // 0 就是 0：明确要求停发就停发
+}
+
+const mkdBadLimitNoticed = new Set();
+
 function remainingDailyQuota() {
   const limit = Math.min(
-    state.management?.rules?.emailDailyLimit || 80,
-    state.campaign?.dailyLimit || 300
+    dailyLimitOf(state.management?.rules?.emailDailyLimit, 80, "发信规则"),
+    dailyLimitOf(state.campaign?.dailyLimit, 300, "活动")
   );
   return Math.max(0, limit - sentTodayCount());
 }
@@ -2001,6 +2028,11 @@ elements.runStatusAction?.addEventListener("click", () => {
   if (view) navigateTo(view);
 });
 elements.runStatusClose?.addEventListener("click", runCancel);
+
+// 常驻存储告警上的「立即导出备份」
+elements.storageAlert?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-storage-alert]")) exportJson();
+});
 
 elements.exportJson.addEventListener("click", exportJson);
 if (elements.backupNow) elements.backupNow.addEventListener("click", exportJson);

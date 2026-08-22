@@ -383,6 +383,7 @@ function render() {
   ensureSelection();
   // 全局元素（顶栏状态、导航徽标、模式/自动驾驶/AI 开关）——成本低且始终可见，每次都刷新
   renderStatus();
+  if (typeof renderStorageAlert === "function") renderStorageAlert();
   updateModeButtons();
   updateAutopilotButton();
   updateAiEngineButtons();

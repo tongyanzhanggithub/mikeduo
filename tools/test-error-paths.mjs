@@ -479,11 +479,81 @@ check("全部真实发送时不该有提示（别喊狼来了）", () => {
   assert(!/假数据|本地模拟/.test(kpiHtml()), "全是真发的却仍在提示模拟数据");
 });
 
-/* ================= ⑦ 打包完整性 =================
+/* ================= ⑦ 边界与坏值 =================
+   坏值不能悄悄改变行为。两处都是"往危险方向倒"的例子：
+   把日限设成 0 想停发，结果被 `||` 当成假值回落到 80；
+   本地存储写满之后只提示一次，之后每次改动都在静默丢失。 */
+
+console.log(String.fromCharCode(10) + "⑦ 边界与坏值");
+
+check("日限设成 0 就是停发，不能回落成默认值", () => {
+  resetState([]);
+  app.state.outbox = [];
+  app.state.management.rules.emailDailyLimit = 0;
+  app.state.campaign.dailyLimit = 0;
+  const left = ctx.remainingDailyQuota();
+  assert(left === 0, `设成 0 却还能发 ${left} 封——想停发反而放开了`);
+});
+
+check("日限是脏数据时回落默认值，并且说出来", () => {
+  resetState([]);
+  app.state.outbox = [];
+  app.state.logs = [];
+  app.state.management.rules.emailDailyLimit = "abc";
+  app.state.campaign.dailyLimit = 300;
+  const left = ctx.remainingDailyQuota();
+  assert(Number.isFinite(left), `算出了非数字：${left}——发送时 slice(0, NaN) 会一封都发不出去`);
+  assert(left > 0, `脏数据把额度算成了 ${left}`);
+  assert(/不是数字/.test(logText()), `脏数据被静默吞掉了：${logText()}`);
+  app.state.management.rules.emailDailyLimit = 80;
+});
+
+check("没配过日限（undefined/空串）用默认值，不算脏数据", () => {
+  resetState([]);
+  app.state.outbox = [];
+  app.state.logs = [];
+  app.state.management.rules.emailDailyLimit = undefined;
+  app.state.campaign.dailyLimit = "";
+  const left = ctx.remainingDailyQuota();
+  assert(left > 0, `没配过就被当成 0 了（${left}）`);
+  assert(!/不是数字/.test(logText()), "把'没配过'误报成了脏数据");
+  app.state.management.rules.emailDailyLimit = 80;
+  app.state.campaign.dailyLimit = 300;
+});
+
+check("本地存储写满时，告警要常驻而不是只闪一次", () => {
+  resetState([]);
+  app.state.logs = [];
+  const bar = app.elements.storageAlert;
+  assert(bar, "没有常驻告警的挂载点");
+  const origSet = ctx.window.localStorage.setItem;
+  ctx.window.localStorage.setItem = () => {
+    const e = new Error("QuotaExceededError");
+    e.name = "QuotaExceededError";
+    throw e;
+  };
+  ctx.flushState();
+  assert(bar.hidden === false, "写失败后告警没有显示");
+  assert(/没有保存|写不进去/.test(String(bar.innerHTML)), `告警内容看不出发生了什么：${bar.innerHTML}`);
+  // 再失败几次，告警必须还在（原来只有一条会滚走的日志）
+  ctx.flushState();
+  ctx.flushState();
+  assert(bar.hidden === false, "多次失败后告警消失了");
+  assert(
+    app.state.logs.filter((l) => /本地存储已满/.test(l.message)).length === 1,
+    "重复刷屏了"
+  );
+  // 恢复写入后要自己消失
+  ctx.window.localStorage.setItem = origSet;
+  ctx.flushState();
+  assert(bar.hidden === true, "存储恢复后告警没有撤掉");
+});
+
+/* ================= ⑧ 打包完整性 =================
    上面①测的是"文件坏了会不会明确失败"，这里测"文件到底会不会被打进包里"。
    data/ 漏进 build.files 是这个项目真实发生过的事故。 */
 
-console.log(String.fromCharCode(10) + "⑦ 打包必须带上数据集（漏过一次）");
+console.log(String.fromCharCode(10) + "⑧ 打包必须带上数据集（漏过一次）");
 
 check("package.json 的 build.files 覆盖 data/ 和 docs/", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));

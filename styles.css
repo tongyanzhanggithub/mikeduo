@@ -9489,3 +9489,46 @@ body.dark .scope-note {
   grid-column: 1 / -1;
   margin: 0 0 4px;
 }
+
+/* 存储写不进去时的常驻告警。用最强的视觉权重——这条一旦出现，
+   用户每多操作一分钟就多丢一分钟的东西。 */
+.storage-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger, #d94848);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger, #d94848) 8%, var(--surface));
+  color: var(--ink);
+}
+.storage-alert[hidden] {
+  display: none;
+}
+.storage-alert-dot {
+  font-size: 18px;
+  line-height: 1;
+}
+.storage-alert-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.storage-alert-body span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.storage-alert-action {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--danger, #d94848);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
