@@ -9482,3 +9482,10 @@ body.dark .scope-note {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* KPI 区是 grid，模拟数据提示条若不跨列就会被挤成一张"卡片"（190px 宽、
+   文字竖着堆成 137px 高）。它是整片数字的前提说明，必须占满一行。 */
+.analytics-kpis .connector-hint {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+}

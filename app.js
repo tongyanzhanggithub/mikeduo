@@ -453,7 +453,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "81a11ec9";
+window.__APP_V = "98368ca7";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -4946,6 +4946,38 @@ function priorityProspects(limit = 5) {
     .slice(0, limit);
 }
 
+/* 这封信/这条消息是不是本地模拟发出去的。
+
+   老数据没有 simulated 标记。本地模拟是默认模式，真实发送的两条路径
+   （SMTP 直连会写 messageId，Webhook 走 markEmailSent）现在都会显式写 false，
+   所以"没标记"基本等于老的模拟数据。判不准时宁可多提示，不可漏提示——
+   把编出来的打开率当成真的，比多看一行提示糟糕得多。 */
+function isSimulatedSend(item) {
+  if (item.simulated === true) return true;
+  if (item.simulated === false) return false;
+  return !item.messageId; // 老数据兜底
+}
+
+// 已发出的记录里有多少是模拟的。按条数说话，不按 state.settings.mode 现判——
+// 用户切到直连之后，历史里的假数据不会因此变真。
+function simulatedSendStats() {
+  const sent = [...activeOutboxItems(), ...activeWhatsappQueueItems()].filter((i) => i.status === "已发送");
+  const sim = sent.filter(isSimulatedSend).length;
+  return { total: sent.length, simulated: sim, real: sent.length - sim };
+}
+
+// 分析页顶部的提示条。送达率和打开率是这一页最容易被当真的两个数字。
+function simulatedDataBanner() {
+  const { total, simulated, real } = simulatedSendStats();
+  if (!simulated) return "";
+  const scope =
+    simulated === total
+      ? "下面的<b>送达</b>和<b>打开</b>全部是程序按哈希生成的假数据"
+      : `已发出的 ${total} 条里有 <b>${simulated} 条</b>是本地模拟的（另有 ${real} 条是真发的），` +
+        `下面的<b>送达</b>与<b>打开</b>把两者混在一起算`;
+  return `<p class="connector-hint">⚠️ ${scope}，<b>不能当作真实投递效果</b>。回复数是真的（回信要么是你自己模拟点的，要么是真收到的）。切到「直连」或「Webhook」真实发信后，新数据才有参考价值。</p>`;
+}
+
 function renderAnalyticsKpis(funnel) {
   const cards = [
     ["有效询盘 / 月", funnel.inquiry, "北极星指标", true],
@@ -4954,7 +4986,7 @@ function renderAnalyticsKpis(funnel) {
     ["回复率", `${pct(funnel.replied, funnel.reached)}%`, "触达中回复占比", false],
     ["询盘转化率", `${pct(funnel.inquiry, funnel.reached)}%`, "触达到询盘", false]
   ];
-  elements.analyticsKpis.innerHTML = cards
+  elements.analyticsKpis.innerHTML = simulatedDataBanner() + cards
     .map(
       ([label, value, hint, star]) => `
         <article class="metric-card ${star ? "is-star" : ""}">
@@ -5285,7 +5317,9 @@ function renderSubjectAb() {
   const total = stats.A.sent + stats.B.sent;
   // 本地模拟模式下"打开"是按哈希算出来的假数据。展示无妨，但绝不能据此给
   // "把话术往这个方向调"的建议——那等于让用户拿随机数改文案。
-  if (state.settings.mode === "local" && total) {
+  // 原来这里判的是 state.settings.mode === "local"——用户切到直连之后警告就没了，
+  // 而表里那些打开数仍然是本地模拟时编出来的。改成按条目上的标记判。
+  if (total && simulatedSendStats().simulated > 0) {
     host.innerHTML = `
       <div class="template-row header"><span>主题写法</span><span>发出</span><span>打开</span><span>回复</span></div>
       <div class="template-row"><span class="template-name"><span class="channel-badge email">A</span> 品类卖点式</span><span>${stats.A.sent}</span><span>${stats.A.opened}</span><span>${stats.A.replied}</span></div>
@@ -7712,8 +7746,15 @@ function directSendReady() {
   return state.settings.mode === "direct" && !!MKD_MAIL?.smtp?.configured;
 }
 
+/* simulated 这个标记必须落在**条目上**，不能靠 state.settings.mode 现判。
+
+   历史是会混的：用户先用本地模式跑一周（送达/打开全是哈希算出来的假数据），
+   之后配好 SMTP 切到直连。这时 mode 变成 "direct"，任何按 mode 判断的提示都会消失，
+   而历史里那 50 封的送达率、打开率仍然是编的——伪造数据就这么"转正"了，
+   混进漏斗和北极星指标里，再也分不出来。 */
 function markEmailSent(item) {
   item.status = "已发送";
+  item.simulated = false; // 真的发出去了
   item.sentAt = new Date().toISOString();
   item.delivered = true;
   advanceDealStage(item.prospectId, "已触达");
@@ -7798,6 +7839,7 @@ async function dispatchPending() {
         return;
       }
       item.status = "已发送";
+      item.simulated = true; // 同上：delivered / opened 是模拟的
       item.sentAt = new Date().toISOString();
       const h = hashInt(item.prospectId + item.step);
       item.delivered = h % 100 < 95;
@@ -11829,6 +11871,7 @@ function scheduleFollowupTasks(showLog = true) {
 
 function deliverEmail(item) {
   item.status = "已发送";
+  item.simulated = true; // 下面的 delivered / opened 是哈希算出来的假数据
   item.sentAt = new Date().toISOString();
   const h = hashInt(item.prospectId + item.step);
   item.delivered = h % 100 < 95;
@@ -12037,6 +12080,7 @@ function deliverApprovedWhatsapp(quiet = false) {
   const approved = activeWhatsappQueueItems().filter((item) => item.status === "已审批" && item.dueDate <= today);
   approved.forEach((item) => {
     item.status = "已发送";
+    item.simulated = true; // WhatsApp 本地队列同样是模拟送达/已读
     item.sentAt = new Date().toISOString();
     const h = hashInt(item.prospectId + item.step);
     item.delivered = h % 100 < 98;

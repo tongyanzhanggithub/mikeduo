@@ -1041,6 +1041,7 @@ function scheduleFollowupTasks(showLog = true) {
 
 function deliverEmail(item) {
   item.status = "已发送";
+  item.simulated = true; // 下面的 delivered / opened 是哈希算出来的假数据
   item.sentAt = new Date().toISOString();
   const h = hashInt(item.prospectId + item.step);
   item.delivered = h % 100 < 95;
@@ -1249,6 +1250,7 @@ function deliverApprovedWhatsapp(quiet = false) {
   const approved = activeWhatsappQueueItems().filter((item) => item.status === "已审批" && item.dueDate <= today);
   approved.forEach((item) => {
     item.status = "已发送";
+    item.simulated = true; // WhatsApp 本地队列同样是模拟送达/已读
     item.sentAt = new Date().toISOString();
     const h = hashInt(item.prospectId + item.step);
     item.delivered = h % 100 < 98;

@@ -897,8 +897,15 @@ function directSendReady() {
   return state.settings.mode === "direct" && !!MKD_MAIL?.smtp?.configured;
 }
 
+/* simulated 这个标记必须落在**条目上**，不能靠 state.settings.mode 现判。
+
+   历史是会混的：用户先用本地模式跑一周（送达/打开全是哈希算出来的假数据），
+   之后配好 SMTP 切到直连。这时 mode 变成 "direct"，任何按 mode 判断的提示都会消失，
+   而历史里那 50 封的送达率、打开率仍然是编的——伪造数据就这么"转正"了，
+   混进漏斗和北极星指标里，再也分不出来。 */
 function markEmailSent(item) {
   item.status = "已发送";
+  item.simulated = false; // 真的发出去了
   item.sentAt = new Date().toISOString();
   item.delivered = true;
   advanceDealStage(item.prospectId, "已触达");
@@ -983,6 +990,7 @@ async function dispatchPending() {
         return;
       }
       item.status = "已发送";
+      item.simulated = true; // 同上：delivered / opened 是模拟的
       item.sentAt = new Date().toISOString();
       const h = hashInt(item.prospectId + item.step);
       item.delivered = h % 100 < 95;

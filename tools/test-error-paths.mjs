@@ -394,11 +394,96 @@ await asyncCheck("跑到一半换活动 → 不能把结果写进新活动的线
   );
 });
 
-/* ================= ⑥ 打包完整性 =================
+/* ================= ⑥ 模拟数据不能冒充真实数据 =================
+   同一个家族：不是"失败伪装成结论"，是"编出来的数字伪装成实测"。
+
+   本地模式（默认）发信是模拟的，送达和打开按哈希算——展示无妨，但必须标明。
+   真正的坑在**历史会混**：用户先用本地模式跑一周，之后配好 SMTP 切到直连，
+   任何按 state.settings.mode 判断的提示都会消失，而历史里那些假的送达率、
+   打开率仍然混在漏斗和北极星指标里，再也分不出来。 */
+
+console.log(String.fromCharCode(10) + "⑥ 模拟数据不能冒充真实数据");
+
+const SIX = () =>
+  Array.from({ length: 6 }, (_, i) => ({
+    id: `s${i}`,
+    company: `Co ${i}`,
+    market: "United States",
+    status: "已入队",
+    email: `a${i}@x.com`,
+    score: 70
+  }));
+
+function seedOutbox(mode) {
+  app.state.settings.mode = mode;
+  resetState(SIX());
+  app.state.outbox = app.state.prospects.map((p, i) => ({
+    id: `o${i}`,
+    prospectId: p.id,
+    step: 1,
+    label: "首封",
+    company: p.company,
+    email: p.email,
+    subject: `Q ${i}`,
+    body: "Dear Sir. unsubscribe.",
+    status: "待发送",
+    dueDate: "2026-08-01"
+  }));
+}
+const kpiHtml = () => {
+  ctx.renderAnalyticsKpis(ctx.computeFunnel());
+  return String(app.elements.analyticsKpis.innerHTML || "");
+};
+
+check("本地模拟发出的邮件要打上 simulated 标记", () => {
+  seedOutbox("local");
+  app.state.outbox.forEach((o) => ctx.deliverEmail(o));
+  assert(
+    app.state.outbox.every((o) => o.simulated === true),
+    `标记没打上：${app.state.outbox.map((o) => o.simulated).join(",")}`
+  );
+  assert(/假数据|模拟/.test(kpiHtml()), "分析页没有提示这些是模拟数据");
+});
+
+check("切到直连后，历史里的假数据不能'转正'", () => {
+  seedOutbox("local");
+  app.state.outbox.forEach((o) => ctx.deliverEmail(o));
+  app.state.settings.mode = "direct"; // 用户配好 SMTP 切过去了
+  assert(
+    /假数据|模拟/.test(kpiHtml()),
+    "切到直连后提示消失了——历史里编出来的送达/打开混进了真实指标"
+  );
+});
+
+check("真假混合时要报出各自条数，不能笼统带过", () => {
+  seedOutbox("direct");
+  app.state.outbox.slice(0, 3).forEach((o) => ctx.deliverEmail(o));
+  app.state.outbox.slice(3).forEach((o) => {
+    ctx.markEmailSent(o);
+    o.messageId = "<real@x>";
+  });
+  const html = kpiHtml();
+  assert(/3 条/.test(html), `没有报出模拟的条数：${html.replace(/<[^>]+>/g, "").slice(0, 120)}`);
+  assert(
+    app.state.outbox.filter((o) => o.simulated === false).length === 3,
+    "真发的邮件没有被标成 simulated:false"
+  );
+});
+
+check("全部真实发送时不该有提示（别喊狼来了）", () => {
+  seedOutbox("direct");
+  app.state.outbox.forEach((o) => {
+    ctx.markEmailSent(o);
+    o.messageId = "<real@x>";
+  });
+  assert(!/假数据|本地模拟/.test(kpiHtml()), "全是真发的却仍在提示模拟数据");
+});
+
+/* ================= ⑦ 打包完整性 =================
    上面①测的是"文件坏了会不会明确失败"，这里测"文件到底会不会被打进包里"。
    data/ 漏进 build.files 是这个项目真实发生过的事故。 */
 
-console.log(String.fromCharCode(10) + "⑥ 打包必须带上数据集（漏过一次）");
+console.log(String.fromCharCode(10) + "⑦ 打包必须带上数据集（漏过一次）");
 
 check("package.json 的 build.files 覆盖 data/ 和 docs/", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
