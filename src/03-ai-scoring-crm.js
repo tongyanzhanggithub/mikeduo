@@ -249,8 +249,9 @@ function hasSentOutbound(prospectId) {
 }
 
 function deriveDealStage(prospect) {
-  const replied =
-    prospect.status === "已回复" || state.inbound.some((item) => item.prospectId === prospect.id);
+  // ensureDealStages 会对每条缺 dealStage 的线索调一次，原本各扫一遍全部来信 →
+  // 导入一批新线索后首次进 CRM 就是 O(线索 × 来信)
+  const replied = prospect.status === "已回复" || hasRepliedInbound(prospect.id);
   if (replied) return "已回复";
   if (hasSentOutbound(prospect.id)) return "已触达";
   return "线索";

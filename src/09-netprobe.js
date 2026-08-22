@@ -2603,6 +2603,26 @@ const MKD_MOUNTS = [
   ["采购官库", mountTendersPanel]
 ];
 
+/* 让重量级视图渲染函数自带索引。
+
+   render() 已经开了索引作用域，但**筛选框、排序、分页展开、收件箱操作、
+   分析页时间范围**这些交互是直接按名字调 renderProspects()/renderOutbox()/… 的，
+   不经过 render()——共 14 处。那些路径没有索引，就退回逐条扫全表的老写法，
+   于是"改完还是卡"，而且卡在用户最常点的地方。
+
+   补那 14 个调用点治标：下次新增一个调用点还会漏。所以把作用域放进函数自己。
+   withScanIndex 是可重入的（按深度计数），所以嵌在 render() 里不额外花钱。
+
+   注意 VIEW_RENDERERS 在模块加载时就抓走了**原始引用**，所以 render() 内部
+   走的仍是未包装的版本——包装只对按名字的直接调用生效，正是我们要的。 */
+for (const name of ["renderProspects", "renderOutbox", "renderInbox", "renderCrm", "renderAnalytics"]) {
+  const base = globalThis[name];
+  if (typeof base !== "function") continue;
+  globalThis[name] = function (...args) {
+    return withScanIndex(() => base.apply(this, args));
+  };
+}
+
 const __mkdRenderBase = render;
 render = function () {
   // 整轮渲染共用一份互动索引：质量分/预检要问的「回过信没、开过信没、

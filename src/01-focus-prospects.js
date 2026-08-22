@@ -1139,6 +1139,10 @@ function renderOutbox() {
     if (button) button.hidden = !hasOutbox;
   });
   if (!outbox.length) {
+    // 队列空了（换活动/全发完）也要把勾选清干净，否则留着上一批的 id，
+    // 「已选 N」会显示一个界面上根本没有的数字
+    mkdActionableOutboxIds = [];
+    mkdSelectedOutbox.clear();
     elements.outboxList.innerHTML = emptyState("mail", "当前活动的发信队列还是空的", "先去潜客队列挑几家勾上，点「一键入队」——草稿会生成到这里，发不发还是你点最后一下。", [
       { label: "去挑选潜客", goto: "prospects", primary: true },
       { label: "一键起量", action: "one-click" }

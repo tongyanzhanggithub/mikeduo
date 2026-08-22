@@ -415,11 +415,18 @@ function growth(key, label) {
   // 5 倍数据量：≤8 倍算线性（留出常数项和缓存抖动的余量），≥15 倍明确是平方
   const verdict = ratio >= 15 ? "平方级 ✗" : ratio >= 8 ? "超线性 ⚠" : "线性 ✓";
   console.log(`  ${label}：数据 ×5 → 耗时 ×${ratio.toFixed(1)}   ${verdict}`);
+  // 明确的平方级才阻断发版。超线性只告警——机器负载和 GC 抖动能把比值推到 8～10，
+  // 拿它当红线会经常误杀；真的退化回逐条扫全表是 ×25 起，15 这条线不会被噪音够到。
+  if (ratio >= 15) process.exitCode = 1;
 }
 
 growth("score", "质量分计算");
 growth("preflight", "发信预检");
 growth("render", "整页渲染");
+// 左边那一列量的是**直接按名字调 renderProspects()** ——筛选框、排序、分页展开、
+// 分析页时间范围走的都是这条路（不经过 render()）。它一度是没有索引的，
+// 于是"改完还是卡"，而且卡在用户最常点的地方。现在渲染函数自带索引，这条也必须是线性。
+growth("renderRaw", "潜客页直接调用（筛选/排序/分页走这条）");
 
 console.log("");
 
