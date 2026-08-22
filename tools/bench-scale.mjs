@@ -322,6 +322,41 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
   ctx.__bench.selectedOutbox.clear();
   console.log(`  ✓ 队列口径：界面 ${renderedRows} 条，全选与批量发送覆盖全部 ${actionable.length} 封（含未渲染的 ${unrendered} 封）`);
 
+  /* 「全部展开」不能变成永久状态。
+
+     它一度被设成 Number.MAX_SAFE_INTEGER：点一次之后，往后每次渲染都会把整池
+     铺进 DOM——后来导入 5000 条时实测 2150ms、8.5 万个节点，分页保护被一次点击
+     悄悄废掉，而且用户看不出来也没法撤销。正确语义是"展开到当前这批结果"，
+     新进来的数据要重新出现「显示更多」。 */
+  // 桩里 select 的默认值是空串，真实界面上是 "all"——不摆正会把整池筛空，
+  // 量到的是空态（0 行），守卫就变成永远报错。
+  const els = ctx.__bench.elements;
+  const setVal = (name, v) => { if (els?.[name]) els[name].value = v; };
+  setVal("prospectFilter", "");
+  ["statusFilter", "gradeFilter", "sourceFilter", "verifyFilter", "marketFilter"].forEach((k) => setVal(k, "all"));
+  setVal("prospectSort", "quality");
+
+  const tbl = ctx.__bench.elements.prospectTable;
+  const rowsOf = () => (String(tbl.innerHTML).match(/data-prospect-id=/g) || []).length;
+  Object.assign(ctx.__bench.state, buildState(700));
+  ctx.withScanIndex(() => ctx.renderProspects());
+  ctx.expandProspectList("all");
+  const afterExpand = rowsOf();
+  if (afterExpand !== 700) {
+    console.log(`  ✗ 全部展开后渲染 ${afterExpand} 行，应为 700 行`);
+    process.exit(1);
+  }
+  // 数据涨到 5000，展开状态不该跟着放大
+  Object.assign(ctx.__bench.state, buildState(5000));
+  ctx.withScanIndex(() => ctx.renderProspects());
+  const afterGrow = rowsOf();
+  if (afterGrow > 700) {
+    console.log(`  ✗ 展开状态黏住了：数据涨到 5000 后渲染了 ${afterGrow} 行（应仍是 700）`);
+    process.exit(1);
+  }
+  console.log(`  ✓ 展开语义：全部展开后 ${afterExpand} 行；数据涨到 5000 仍是 ${afterGrow} 行，不黏`);
+  ctx.resetListPaging();
+
   // 渲染结束必须把索引丢干净，否则下一次渲染会读到旧数据
   if (ctx.scanIndex() !== null) {
     console.log("  ✗ 渲染作用域退出后索引没清空 —— 会读到过期数据");

@@ -1445,6 +1445,7 @@ function activateManagedCampaign(id) {
   const c = state.management.campaigns.find((x) => x.id === id);
   if (!c) return;
   state.activeCampaignId = id;
+  resetListPaging(); // 换活动 = 换一整批数据，分页和勾选都回到起点
   state.campaign = {
     ...state.campaign,
     product: c.product,
@@ -1683,6 +1684,7 @@ async function importBackupFile(file) {
       ...(restored.logs || [])
     ].slice(0, 80);
     state = restored;
+    resetListPaging(); // 恢复备份把 state 整个换掉了
     bindCampaignForm();
     bindSettingsForm();
     bindManagementForm();
@@ -1975,6 +1977,7 @@ if (elements.refineFocus) {
 
 elements.resetDemo.addEventListener("click", () => {
   state = createDemoState();
+  resetListPaging();
   bindCampaignForm();
   bindSettingsForm();
   bindManagementForm();

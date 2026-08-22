@@ -453,7 +453,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "62c1d736";
+window.__APP_V = "45d49200";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -2266,14 +2266,27 @@ function renderProspects() {
   renderProspectBulkBar();
 }
 
-// 展开更多行。整池展开会明显变慢，所以按钮上直接写明白。
+/* 展开更多行。
+
+   「全部展开」= 展开到**当前这批结果**，不是无穷大。原先设成 MAX_SAFE_INTEGER，
+   于是点一次之后这个状态就永久黏住了：后面再导入 5000 条会一次性全渲染
+   （实测 2150ms、8.5 万个 DOM 节点），分页保护被一次点击悄悄废掉，
+   用户既看不出来也没法撤销。展开到当前数量之后，新进来的线索会重新
+   出现「显示更多」，不会失控。
+
+   抽成具名函数是为了能被 bench-scale.mjs 直接调用验证这条不变量——
+   埋在 click 回调里就只能靠人工点。 */
+function expandProspectList(mode) {
+  mkdProspectShown =
+    mode === "all" ? Math.max(PROSPECT_PAGE_SIZE, mkdFilteredProspectIds.length) : mkdProspectShown + PROSPECT_PAGE_SIZE;
+  renderProspects();
+}
+
 document.addEventListener("click", (event) => {
   const more = event.target.closest("[data-prospect-more]");
   if (!more) return;
   event.stopPropagation();
-  mkdProspectShown =
-    more.dataset.prospectMore === "all" ? Number.MAX_SAFE_INTEGER : mkdProspectShown + PROSPECT_PAGE_SIZE;
-  renderProspects();
+  expandProspectList(more.dataset.prospectMore);
 });
 
 
@@ -12177,6 +12190,7 @@ function activateManagedCampaign(id) {
   const c = state.management.campaigns.find((x) => x.id === id);
   if (!c) return;
   state.activeCampaignId = id;
+  resetListPaging(); // 换活动 = 换一整批数据，分页和勾选都回到起点
   state.campaign = {
     ...state.campaign,
     product: c.product,
@@ -12415,6 +12429,7 @@ async function importBackupFile(file) {
       ...(restored.logs || [])
     ].slice(0, 80);
     state = restored;
+    resetListPaging(); // 恢复备份把 state 整个换掉了
     bindCampaignForm();
     bindSettingsForm();
     bindManagementForm();
@@ -12707,6 +12722,7 @@ if (elements.refineFocus) {
 
 elements.resetDemo.addEventListener("click", () => {
   state = createDemoState();
+  resetListPaging();
   bindCampaignForm();
   bindSettingsForm();
   bindManagementForm();
@@ -14499,6 +14515,23 @@ document.addEventListener("click", (event) => {
 });
 
 const mkdSelectedProspects = new Set();
+
+/* 换活动、恢复备份、重置演示数据——这几件事会把线索池整批换掉。
+   分页计数器和勾选是模块级状态，不跟着 state 走，所以要显式归零：
+   否则会带着上一批的"已展开 800 行"和一堆对不上号的勾选进入新数据。
+   （勾选虽然每次渲染都会剔除失效项，但显式清掉更符合用户预期。） */
+function resetListPaging() {
+  mkdProspectShown = PROSPECT_PAGE_SIZE;
+  mkdProspectFilterSig = null;
+  mkdFilteredProspectIds = [];
+  mkdOutboxShown = OUTBOX_PAGE_SIZE;
+  mkdOutboxFilterSig = null;
+  mkdActionableOutboxIds = [];
+  mkdConversationShown = CONVERSATION_PAGE_SIZE;
+  mkdConversationFilterSig = null;
+  mkdSelectedProspects.clear();
+  mkdSelectedOutbox.clear();
+}
 
 function isProspectSelected(id) {
   return mkdSelectedProspects.has(id);

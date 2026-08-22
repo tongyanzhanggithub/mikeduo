@@ -794,14 +794,27 @@ function renderProspects() {
   renderProspectBulkBar();
 }
 
-// 展开更多行。整池展开会明显变慢，所以按钮上直接写明白。
+/* 展开更多行。
+
+   「全部展开」= 展开到**当前这批结果**，不是无穷大。原先设成 MAX_SAFE_INTEGER，
+   于是点一次之后这个状态就永久黏住了：后面再导入 5000 条会一次性全渲染
+   （实测 2150ms、8.5 万个 DOM 节点），分页保护被一次点击悄悄废掉，
+   用户既看不出来也没法撤销。展开到当前数量之后，新进来的线索会重新
+   出现「显示更多」，不会失控。
+
+   抽成具名函数是为了能被 bench-scale.mjs 直接调用验证这条不变量——
+   埋在 click 回调里就只能靠人工点。 */
+function expandProspectList(mode) {
+  mkdProspectShown =
+    mode === "all" ? Math.max(PROSPECT_PAGE_SIZE, mkdFilteredProspectIds.length) : mkdProspectShown + PROSPECT_PAGE_SIZE;
+  renderProspects();
+}
+
 document.addEventListener("click", (event) => {
   const more = event.target.closest("[data-prospect-more]");
   if (!more) return;
   event.stopPropagation();
-  mkdProspectShown =
-    more.dataset.prospectMore === "all" ? Number.MAX_SAFE_INTEGER : mkdProspectShown + PROSPECT_PAGE_SIZE;
-  renderProspects();
+  expandProspectList(more.dataset.prospectMore);
 });
 
 

@@ -526,6 +526,23 @@ document.addEventListener("click", (event) => {
 
 const mkdSelectedProspects = new Set();
 
+/* 换活动、恢复备份、重置演示数据——这几件事会把线索池整批换掉。
+   分页计数器和勾选是模块级状态，不跟着 state 走，所以要显式归零：
+   否则会带着上一批的"已展开 800 行"和一堆对不上号的勾选进入新数据。
+   （勾选虽然每次渲染都会剔除失效项，但显式清掉更符合用户预期。） */
+function resetListPaging() {
+  mkdProspectShown = PROSPECT_PAGE_SIZE;
+  mkdProspectFilterSig = null;
+  mkdFilteredProspectIds = [];
+  mkdOutboxShown = OUTBOX_PAGE_SIZE;
+  mkdOutboxFilterSig = null;
+  mkdActionableOutboxIds = [];
+  mkdConversationShown = CONVERSATION_PAGE_SIZE;
+  mkdConversationFilterSig = null;
+  mkdSelectedProspects.clear();
+  mkdSelectedOutbox.clear();
+}
+
 function isProspectSelected(id) {
   return mkdSelectedProspects.has(id);
 }
