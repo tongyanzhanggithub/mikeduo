@@ -96,7 +96,10 @@ async function harvestProspectSite(prospectId, quiet = false) {
   const res = await window.mkd.siteHarvest(prospect.website, 4);
   if (!res || !res.ok) {
     if (!quiet) addLog(`打不开 ${prospect.website}：${res?.reason || "未知原因"}`);
-    return "none";
+    // 「打不开」和「打开了但没公示联系方式」是两回事，不能都返回 "none"：
+    // 批量汇总会把前者说成"这批公司官网上既没有邮箱也没有号码"，
+    // 用户据此把好线索删掉——这个担心在 SPA 那段注释里已经写过一次了。
+    return "unreachable";
   }
   const got = applyHarvest(prospectId, res);
   if (!quiet) {
@@ -160,11 +163,13 @@ async function batchHarvestSites(ids) {
 
   runBegin("抓官网联系方式", `准备抓 ${targets.length} 家公司`);
   let hit = 0;
+  let unreachable = 0; // 站点打不开——不等于对方没公示联系方式
   for (let i = 0; i < targets.length; i += 1) {
     if (!runIsActive()) break; // 用户中止
     runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
     const r = await harvestProspectSite(targets[i].id, true);
     if (r === "website") hit += 1;
+    else if (r === "unreachable") unreachable += 1;
   }
   // 空壳站要单独统计。混在"没抓到"里报，用户会以为这批公司都没公示联系方式，
   // 顺手把好线索删了——实际只是我们抓不到。
@@ -172,16 +177,27 @@ async function batchHarvestSites(ids) {
   saveState();
   render();
   const rate = Math.round((hit / targets.length) * 100);
+  // "没抓到"要拆成三种，因为对用户的含义完全不同：
+  //   打不开   → 我们没查成，别据此判断
+  //   动态渲染 → 我们抓不到，别据此判断
+  //   都不是   → 确实打开了、确实没公示
+  const cantTell = unreachable + spa;
   runDone(
-    `抓到 ${hit}/${targets.length} 家（${rate}%）${spa ? ` · ${spa} 家抓不了` : ""}`,
+    `抓到 ${hit}/${targets.length} 家（${rate}%）${cantTell ? ` · ${cantTell} 家查不了` : ""}`,
     hit
       ? "全部来自企业官网公示，可点开出处核对"
+      : unreachable
+      ? `${unreachable} 家官网打不开（域名失效或网络不通），没查成——别当成对方没公示`
       : spa
       ? `${spa} 家是动态渲染站，我们抓不到——别当成对方没公示`
       : "这批公司官网上既没有公示邮箱，也没有号码"
   );
   addLog(
     `官网抓取完成：${targets.length} 家里拿到 ${hit} 家真实联系方式（邮箱或 WhatsApp 号，${rate}%），零编造。` +
+      (unreachable
+        ? `另有 ${unreachable} 家官网打不开（域名失效 / 网络不通 / 对方拒连），**这 ${unreachable} 家没有查成**，` +
+          `不是"没有联系方式"，别据此删掉。`
+        : "") +
       (spa
         ? `另有 ${spa} 家官网是动态渲染的，内容要跑完 JS 才出现，我们抓到的是空壳——` +
           `**这 ${spa} 家不等于没有联系方式**，别据此删掉，可手动打开看或改用 Hunter。`
@@ -1893,7 +1909,9 @@ async function screenProspect(prospectId, quiet = false) {
   const res = await window.mkd.screenEntity(prospect.company);
   if (!res || res.ok === false) {
     if (!quiet) addLog(`合规名单读取失败，${prospect.company} **没有查过**：${res?.reason || "未知原因"}`);
-    return null;
+    // 返回 { ok:false } 而不是 null：批量调用方要能把"没查成"和"查了没命中"
+    // 分开统计。返回 null 的话两者长得一模一样，汇总就会说成"都不在名单上"。
+    return { ok: false, reason: res?.reason || "未知原因" };
   }
 
   state.prospects = state.prospects.map((p) =>
@@ -1941,14 +1959,42 @@ async function batchScreenProspects(ids) {
   runBegin("合规筛查", `准备查 ${targets.length} 家公司`);
   let exact = 0;
   let partial = 0;
+  let failed = 0;
+  let lastReason = "";
   for (let i = 0; i < targets.length; i += 1) {
     if (!runIsActive()) break;
     runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
     const r = await screenProspect(targets[i].id, true);
+    if (r && r.ok === false) {
+      failed += 1;
+      lastReason = r.reason;
+      continue;
+    }
     if (r?.hit) (r.match === "exact" ? (exact += 1) : (partial += 1));
   }
   saveState();
   render();
+
+  /* 没查成的必须单独说。
+
+     这是整个产品最不能含糊的一处：名单读不出来（打包漏了 data/、文件损坏、
+     磁盘故障）时，如果照旧报"N 家都不在名单上"，用户就会拿着一个**根本没执行过
+     的合规检查**去发货。主进程那边已经明确不返回"没命中"了，这里不能把它化掉。 */
+  if (failed) {
+    const checked = targets.length - failed;
+    runDone(
+      `${failed} 家没查成`,
+      "合规名单读取失败——这些公司还没有被筛查，不能当作已通过"
+    );
+    addLog(
+      `合规筛查未完成：${targets.length} 家里只查成 ${checked} 家` +
+        (checked ? `（精确命中 ${exact} 家、疑似 ${partial} 家）` : "") +
+        `，另外 ${failed} 家因名单读取失败**没有查过**（${lastReason}）。` +
+        `别把这 ${failed} 家当成不在名单上——修好 data/screening.json.gz 后重新查一遍。`
+    );
+    return;
+  }
+
   runDone(
     exact || partial ? `命中 ${exact} 家、疑似 ${partial} 家` : `${targets.length} 家都不在名单上`,
     exact ? "命中的已在发信队列里拦下，点开看命中哪条法律线" : ""

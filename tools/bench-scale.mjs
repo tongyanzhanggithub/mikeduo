@@ -10,143 +10,15 @@
 // 量的是 **JS 执行耗时**，不含浏览器排版绘制。
 // 所以这里的数字是下界：真机上只会更慢，不会更快。
 // 真机数字另由浏览器实测补（见 docs/交接与待办.md）。
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createContext, runInContext } from "node:vm";
+import { createAppSandbox, applyDefaultFilters } from "./app-sandbox.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-/* ---------------- 最小 DOM 桩 ----------------
-   目标不是仿真浏览器，而是让 app.js 能整个加载起来并跑通 render()。
-   innerHTML 只当普通属性存着——拼字符串的开销是真的，排版的开销不算。 */
-function makeEl(tag = "div") {
-  const el = {
-    tagName: String(tag).toUpperCase(),
-    id: "",
-    children: [],
-    style: {},
-    dataset: {},
-    value: "",
-    textContent: "",
-    innerHTML: "",
-    hidden: false,
-    checked: false,
-    disabled: false,
-    scrollTop: 0,
-    offsetWidth: 100,
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    addEventListener() {},
-    removeEventListener() {},
-    appendChild(c) { this.children.push(c); return c; },
-    removeChild() {},
-    insertAdjacentHTML() {},
-    setAttribute() {},
-    getAttribute: () => null,
-    removeAttribute() {},
-    hasAttribute: () => false,
-    querySelector: () => makeEl(),
-    querySelectorAll: () => [],
-    closest: () => null,
-    focus() {},
-    blur() {},
-    click() {},
-    remove() {},
-    scrollIntoView() {},
-    getBoundingClientRect: () => ({ top: 0, left: 0, width: 100, height: 20, bottom: 20, right: 100 })
-  };
-  return el;
-}
-
-const doc = {
-  documentElement: makeEl("html"),
-  body: makeEl("body"),
-  head: makeEl("head"),
-  createElement: (t) => makeEl(t),
-  createTextNode: () => makeEl("#text"),
-  getElementById: () => makeEl(),
-  querySelector: () => makeEl(),
-  querySelectorAll: () => [],
-  addEventListener() {},
-  removeEventListener() {},
-  visibilityState: "visible"
-};
-
-const store = new Map();
-const sandbox = {
-  console: { log() {}, warn() {}, error() {}, info() {} }, // 别让启动日志淹没基准输出
-  document: doc,
-  navigator: { userAgent: "bench", clipboard: { writeText: async () => {} }, onLine: true },
-  location: { href: "file:///bench", hash: "", search: "" },
-  localStorage: {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, String(v)),
-    removeItem: (k) => store.delete(k),
-    clear: () => store.clear()
-  },
-  setTimeout: () => 0,
-  clearTimeout() {},
-  setInterval: () => 0,
-  clearInterval() {},
-  requestAnimationFrame: () => 0,
-  cancelAnimationFrame() {},
-  fetch: async () => ({ ok: false, status: 0, text: async () => "", json: async () => ({}) }),
-  alert() {},
-  confirm: () => false,
-  prompt: () => null,
-  matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
-  scrollTo() {},
-  crypto: { getRandomValues: (a) => a, randomUUID: () => "bench-uuid" },
-  Date,
-  Math,
-  JSON,
-  Intl,
-  URL,
-  URLSearchParams,
-  TextEncoder,
-  TextDecoder,
-  performance,
-  Blob: class { constructor() {} },
-  FileReader: class { readAsText() {} },
-  Image: class { constructor() {} },
-  Event: class { constructor(t) { this.type = t; } },
-  CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o?.detail; } },
-  MutationObserver: class { observe() {} disconnect() {} },
-  IntersectionObserver: class { observe() {} disconnect() {} },
-  addEventListener() {},
-  removeEventListener() {},
-  dispatchEvent: () => true
-};
-sandbox.window = sandbox;
-sandbox.globalThis = sandbox;
-sandbox.self = sandbox;
-
-const ctx = createContext(sandbox);
-
-let loadError = null;
+let ctx;
 try {
-  runInContext(readFileSync(join(root, "app.js"), "utf8"), ctx, { filename: "app.js" });
-  // app.js 顶层的 let/const 是词法绑定，不会成为 vm 全局对象的属性，
-  // 用一段同上下文的尾巴把基准要用的引用导出来
-  runInContext(
-    // 用 getter 而不是快照：mkdActionableOutboxIds / mkdFilteredProspectIds 每次渲染都会被重新赋值
-    `globalThis.__bench = {
-       state, elements,
-       selectedOutbox: mkdSelectedOutbox,
-       OUTBOX_PAGE_SIZE, PROSPECT_PAGE_SIZE, CONVERSATION_PAGE_SIZE,
-       get actionableOutboxIds() { return mkdActionableOutboxIds; },
-       get filteredProspectIds() { return mkdFilteredProspectIds; }
-     };`,
-    ctx,
-    { filename: "bench-export.js" }
-  );
+  ctx = createAppSandbox();
 } catch (error) {
-  loadError = error;
-}
-if (loadError) {
-  console.log("app.js 在 DOM 桩下加载失败，基准无法运行：");
-  console.log("  " + String(loadError.stack).split(String.fromCharCode(10)).slice(0, 6).join(String.fromCharCode(10) + "  "));
-  console.log("  （桩缺了某个浏览器 API。补上对应的桩即可，不是产品代码的问题。）");
+  console.log(error.message);
+  console.log("  " + String(error.stack).split(String.fromCharCode(10)).slice(1, 5).join(String.fromCharCode(10) + "  "));
+  console.log("  （桩缺了某个浏览器 API，补 tools/app-sandbox.mjs 即可，不是产品代码的问题。）");
   process.exit(1);
 }
 
@@ -236,8 +108,8 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
 
 {
   const data = buildState(400);
-  Object.assign(ctx.__bench.state, data);
-  const st = ctx.__bench.state;
+  Object.assign(ctx.__app.state, data);
+  const st = ctx.__app.state;
 
   const scoreOf = (p) => JSON.stringify(ctx.computeLeadScore(p));
   const preflightOf = (o) => JSON.stringify(ctx.preflightOutboxItem(o));
@@ -284,19 +156,19 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
      重建 innerHTML，勾好的选择会静默清零。搬进 state 后两条都堵住了，
      这里盯着别再回去。 */
   // 这项要用大一点的数据集：队列必须真的超过一页，否则比对是空的
-  Object.assign(ctx.__bench.state, buildState(2000));
+  Object.assign(ctx.__app.state, buildState(2000));
   ctx.withScanIndex(() => ctx.renderOutbox());
-  const outHtml = String(ctx.__bench.elements?.outboxList?.innerHTML || "");
+  const outHtml = String(ctx.__app.elements?.outboxList?.innerHTML || "");
   const renderedRows = (outHtml.match(/class="outbox-item/g) || []).length;
-  const cap = ctx.__bench.OUTBOX_PAGE_SIZE;
+  const cap = ctx.__app.OUTBOX_PAGE_SIZE;
   const actionable = st.outbox.filter((o) => ["待审批", "待发送"].includes(o.status));
 
   if (renderedRows > cap) {
     console.log(`  ✗ 队列渲染了 ${renderedRows} 条，超过上限 ${cap}`);
     process.exit(1);
   }
-  if (ctx.__bench.actionableOutboxIds.length !== actionable.length) {
-    console.log(`  ✗ 全选口径 ${ctx.__bench.actionableOutboxIds.length} ≠ 全部待审/待发 ${actionable.length}`);
+  if (ctx.__app.actionableOutboxIds.length !== actionable.length) {
+    console.log(`  ✗ 全选口径 ${ctx.__app.actionableOutboxIds.length} ≠ 全部待审/待发 ${actionable.length}`);
     process.exit(1);
   }
   if (renderedRows >= actionable.length) {
@@ -304,9 +176,9 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
     process.exit(1);
   }
   // 全选后，批量发送解析出来的条目必须包含没渲染出来的那些
-  ctx.__bench.selectedOutbox.clear();
-  ctx.__bench.actionableOutboxIds.forEach((id) => ctx.__bench.selectedOutbox.add(id));
-  const resolved = ctx.activeOutboxItems().filter((o) => ctx.__bench.selectedOutbox.has(o.id));
+  ctx.__app.selectedOutbox.clear();
+  ctx.__app.actionableOutboxIds.forEach((id) => ctx.__app.selectedOutbox.add(id));
+  const resolved = ctx.activeOutboxItems().filter((o) => ctx.__app.selectedOutbox.has(o.id));
   // 前缀 data-outbox-id=" 是 16 个字符——切错一位会让"已渲染"集合为空，
   // 于是下面的比对永远成立，守卫变成摆设。所以再核对一次数量对不对。
   const renderedIds = new Set([...outHtml.matchAll(/data-outbox-id="([^"]+)"/g)].map((m) => m[1]));
@@ -319,7 +191,7 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
     console.log(`  ✗ 批量发送只解析出 ${resolved.length}/${actionable.length} 封，其中未渲染的 ${unrendered} 封 —— 分页把范围改小了`);
     process.exit(1);
   }
-  ctx.__bench.selectedOutbox.clear();
+  ctx.__app.selectedOutbox.clear();
   console.log(`  ✓ 队列口径：界面 ${renderedRows} 条，全选与批量发送覆盖全部 ${actionable.length} 封（含未渲染的 ${unrendered} 封）`);
 
   /* 「全部展开」不能变成永久状态。
@@ -328,17 +200,11 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
      铺进 DOM——后来导入 5000 条时实测 2150ms、8.5 万个节点，分页保护被一次点击
      悄悄废掉，而且用户看不出来也没法撤销。正确语义是"展开到当前这批结果"，
      新进来的数据要重新出现「显示更多」。 */
-  // 桩里 select 的默认值是空串，真实界面上是 "all"——不摆正会把整池筛空，
-  // 量到的是空态（0 行），守卫就变成永远报错。
-  const els = ctx.__bench.elements;
-  const setVal = (name, v) => { if (els?.[name]) els[name].value = v; };
-  setVal("prospectFilter", "");
-  ["statusFilter", "gradeFilter", "sourceFilter", "verifyFilter", "marketFilter"].forEach((k) => setVal(k, "all"));
-  setVal("prospectSort", "quality");
+  applyDefaultFilters(ctx);
 
-  const tbl = ctx.__bench.elements.prospectTable;
+  const tbl = ctx.__app.elements.prospectTable;
   const rowsOf = () => (String(tbl.innerHTML).match(/data-prospect-id=/g) || []).length;
-  Object.assign(ctx.__bench.state, buildState(700));
+  Object.assign(ctx.__app.state, buildState(700));
   ctx.withScanIndex(() => ctx.renderProspects());
   ctx.expandProspectList("all");
   const afterExpand = rowsOf();
@@ -347,7 +213,7 @@ const fmt = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 100 ? ms.toFixed(1) : Math.ro
     process.exit(1);
   }
   // 数据涨到 5000，展开状态不该跟着放大
-  Object.assign(ctx.__bench.state, buildState(5000));
+  Object.assign(ctx.__app.state, buildState(5000));
   ctx.withScanIndex(() => ctx.renderProspects());
   const afterGrow = rowsOf();
   if (afterGrow > 700) {
@@ -371,28 +237,21 @@ const results = [];
 
 for (const n of SIZES) {
   const data = buildState(n);
-  Object.assign(ctx.__bench.state, data);
+  Object.assign(ctx.__app.state, data);
   // 让筛选器回到「不筛」，量的是最大工作量
-  ctx.__bench.state.selectedProspectId = null;
+  ctx.__app.state.selectedProspectId = null;
 
   const row = { n, outbox: data.outbox.length };
 
   // 桩里 select 的默认值是空串，而真实界面上是 "all"——不摆正的话
   // 筛选会把整池滤空，量到的是空态渲染（很快，但没意义）
-  const el = ctx.__bench.elements;
-  const setVal = (name, v) => { if (el?.[name]) el[name].value = v; };
-  setVal("prospectFilter", "");
-  setVal("statusFilter", "all");
-  setVal("gradeFilter", "all");
-  setVal("sourceFilter", "all");
-  setVal("verifyFilter", "all");
-  setVal("marketFilter", "all");
-  setVal("prospectSort", "quality");
+  applyDefaultFilters(ctx);
+  const el = ctx.__app.elements;
 
   // 每一项都量两遍：不带索引（即修复前的老路径，也是渲染之外的回退路径）
   // 和带索引（真实渲染时走的路径）。两个数并排摆着，退化了一眼能看出来。
-  const scoreAll = () => { for (const p of ctx.__bench.state.prospects) ctx.computeLeadScore(p); };
-  const preflightAll = () => { for (const o of ctx.__bench.state.outbox) ctx.preflightOutboxItem(o); };
+  const scoreAll = () => { for (const p of ctx.__app.state.prospects) ctx.computeLeadScore(p); };
+  const preflightAll = () => { for (const o of ctx.__app.state.outbox) ctx.preflightOutboxItem(o); };
 
   row.scoreRaw = timeIt(scoreAll);
   row.score = timeIt(() => ctx.withScanIndex(scoreAll));
@@ -407,7 +266,7 @@ for (const n of SIZES) {
     ctx.withScanIndex(() => ctx.renderProspects());
     const html = String(table?.innerHTML || "");
     const rendered = (html.match(/data-prospect-id=/g) || []).length;
-    const cap = ctx.__bench.PROSPECT_PAGE_SIZE;
+    const cap = ctx.__app.PROSPECT_PAGE_SIZE;
     const expect = Math.min(n, cap);
     if (rendered !== expect) {
       row.renderNote = `渲染出 ${rendered} 行，应为 ${expect} 行（上限 ${cap}）`;
