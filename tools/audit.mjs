@@ -151,6 +151,96 @@ for (const { f, t } of all) {
 }
 if (!n8) ok("全部同步写回");
 
+section("⑨ 主进程会抛的 IPC × 渲染层不接");
+
+/* 危险的是**组合**，不是单独一边：
+
+   ipcMain.handle 里做裸的文件 / 对话框 I/O（磁盘满、权限、杀软锁文件都会抛），
+   而渲染层那边 `await bridge.xxx()` 又没有 try/catch —— 抛出去被全局
+   unhandledrejection 兜住只记进诊断日志，界面上**什么都不发生**。
+   用户点了按钮，没反应，也没有任何解释。
+
+   真实撞到的三处：
+     · backup-write  —— 恢复备份前那份"保险备份"写不成，恢复静默中止，
+                        而弹窗上明写着"覆盖前会自动另存一份"，用户以为已经恢复了
+     · save-text     —— 导出诊断包失败，失败信息记进了……没导出成的那个诊断日志
+     · backup-list   —— 备份目录读不出来，界面显示"还没有自动备份"（备份明明在）
+
+   网络类的处理器全都包在 throttled() 里、异常统一兜成 { ok:false }，所以不在此列。 */
+
+const mainSrc = readFileSync(join(root, "main.js"), "utf8");
+const preloadSrc = readFileSync(join(root, "preload.js"), "utf8");
+
+// 通道名 → 渲染层方法名
+const channelToMethod = new Map();
+for (const m of preloadSrc.matchAll(/(\w+):\s*\([^)]*\)\s*=>\s*ipcRenderer\.invoke\(\s*"([^"]+)"/g)) {
+  channelToMethod.set(m[2], m[1]);
+}
+
+// main.js 里每个 handler 的正文
+const mainLines = mainSrc.split(NL);
+const handlerStarts = [];
+mainLines.forEach((l, i) => {
+  const m = l.match(/ipcMain\.handle\(\s*"([^"]+)"/);
+  if (m) handlerStarts.push({ i, channel: m[1] });
+});
+
+const RISKY_IO = /(^|[^\w.])fs\.(write|read|readdir|stat|unlink|rm|append|copy|rename)\w*Sync|(^|[^\w.])dialog\.show/m;
+const throwing = new Set();
+handlerStarts.forEach((h, k) => {
+  const end = k + 1 < handlerStarts.length ? handlerStarts[k + 1].i : mainLines.length;
+  /* 逐行判 try 深度，而不是"body 里有没有 try"。
+
+     第一版就是后者，结果在**最要紧的那个**上漏报：mkd:backup-write 的正文里确实有
+     一个 try，但它只包着"滚动删除旧备份"那几行，真正关键的 fs.writeFileSync
+     在它外面。粗判会把整个处理器当成安全的。 */
+  let depth = 0;
+  for (let i = h.i; i < end; i += 1) {
+    const line = mainLines[i];
+    const st = line.trim();
+    if (/(^|[^\w])try[\s{]/.test(st)) depth += 1;
+    if (depth > 0 && /^\}/.test(st) && !/catch|finally/.test(st)) {
+      // try/catch 结束（catch/finally 行不算收尾）
+    }
+    if (/^\}\s*(catch|finally)/.test(st)) depth = Math.max(0, depth - 1);
+    if (depth === 0 && RISKY_IO.test(line)) {
+      throwing.add(h.channel);
+      break;
+    }
+  }
+});
+
+// 渲染层：await bridge.x() / window.mkd.x() 在不在 try 里
+const rendererUnguarded = new Map(); // method -> [位置]
+for (const { f, t } of all) {
+  const lines = t.split(NL);
+  const tryStack = [];
+  lines.forEach((l, i) => {
+    const st = l.trim();
+    const ind = l.length - l.trimStart().length;
+    if (/^try\s*\{/.test(st)) tryStack.push(ind);
+    if (/^\}\s*catch/.test(st)) tryStack.pop();
+    const m = l.match(/await\s+(?:bridge|window\.mkd|mkd)\??\.(\w+)\s*\(/);
+    if (!m) return;
+    if (tryStack.length || l.includes(".catch(")) return;
+    if (!rendererUnguarded.has(m[1])) rendererUnguarded.set(m[1], []);
+    rendererUnguarded.get(m[1]).push(`${f}:${i + 1}`);
+  });
+}
+
+let n9 = 0;
+for (const channel of throwing) {
+  const method = channelToMethod.get(channel);
+  if (!method) continue;
+  const spots = rendererUnguarded.get(method);
+  if (!spots) continue;
+  spots.forEach((where) => {
+    bad(`${where} ${method}() 没有 try/catch，而主进程 ${channel} 会抛（裸的文件/对话框 I/O）——失败时界面上什么都不会发生`);
+    n9 += 1;
+  });
+}
+if (!n9) ok(`会抛的通道 ${throwing.size} 个，渲染层都接住了`);
+
 console.log("");
 if (problems) {
   console.log(`发现 ${problems} 处。多数是"静默失效"——不报错，所以只能靠这种扫描发现。`);

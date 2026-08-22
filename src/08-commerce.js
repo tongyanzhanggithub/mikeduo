@@ -1286,8 +1286,17 @@ async function exportDiagnostics() {
   const name = `mikeduo-diagnostics-${dateOffset(0)}.log`;
   const bridge = mkdBridge();
   if (bridge) {
-    const result = await bridge.saveText(name, text);
+    // 取消和失败原来长得一模一样（都是什么都不显示）。
+    // 主进程那边是裸的 writeFileSync，磁盘满 / 无权限 / 杀软锁文件都会抛。
+    let result;
+    try {
+      result = await bridge.saveText(name, text);
+    } catch (error) {
+      addLog(`诊断日志没能保存：${error?.message || error}（换个目录或腾出磁盘空间再试）`);
+      return;
+    }
     if (result.ok) addLog(`诊断日志已保存到 ${result.file}`);
+    else addLog("已取消保存诊断日志");
   } else {
     download(name, text, "text/plain");
     addLog("诊断日志已导出（邮箱与电话已打码，不含邮件正文）");
@@ -1521,7 +1530,26 @@ async function openRestoreDialog() {
     elements.importBackupFile?.click();
     return;
   }
-  const list = await bridge.backupList();
+  /* 读不出来和"没有备份"是两回事，不能都走同一个空态。
+     主进程这里是裸的 readdirSync/statSync（目录权限、杀软锁、路径被占都会抛），
+     抛出来渲染层不接的话，用户点「从备份恢复」就是什么都不发生。
+     更糟的是兜成空数组——那会显示"还没有自动备份"，而备份明明就在那儿。 */
+  let list;
+  try {
+    list = await bridge.backupList();
+  } catch (error) {
+    mkdModal({
+      title: "读不出备份目录",
+      body:
+        `<p>备份目录打不开：${escapeHtml(error?.message || String(error))}</p>` +
+        `<p class="mkd-hint">这不代表备份丢了——可能是权限或杀毒软件占用。可以点「打开备份文件夹」自己看一眼。</p>`,
+      actions: [
+        { label: "打开备份文件夹", kind: "ghost", onClick: () => bridge.openPath?.("backups") },
+        { label: "知道了", kind: "primary", autofocus: true }
+      ]
+    });
+    return;
+  }
   if (!list.length) {
     mkdModal({
       title: "还没有自动备份",
@@ -1595,7 +1623,23 @@ async function previewAndRestore(file) {
         label: "覆盖并恢复",
         kind: "danger",
         onClick: async () => {
-          await bridge.backupWrite(backupJson(), "before-restore");
+          /* 上面那句提示向用户承诺了"覆盖前先另存一份"。这一步失败就必须**中止**，
+             而不是继续覆盖——保险没买成还照样跳楼。
+             原来这里是裸 await：抛出去被全局 unhandledrejection 兜住只记日志，
+             弹窗关掉、什么都没发生，用户会以为恢复成功了，实际看的还是旧数据。 */
+          try {
+            await bridge.backupWrite(backupJson(), "before-restore");
+          } catch (error) {
+            addLog(`没有恢复：覆盖前的保险备份没写成（${error?.message || error}），当前数据原样保留`);
+            mkdModal({
+              title: "没有恢复，当前数据没动",
+              body:
+                `<p>按约定要先把现在的数据另存一份再覆盖，但这一步失败了：${escapeHtml(error?.message || String(error))}</p>` +
+                `<p class="mkd-hint">所以这次恢复<b>没有执行</b>，你现在看到的还是原来的数据。腾出磁盘空间或检查备份目录权限后再试。</p>`,
+              actions: [{ label: "知道了", kind: "primary", autofocus: true }]
+            });
+            return;
+          }
           addLog("已恢复备份，正在重新载入…");
           // 先把内存里待写的改动全部落盘并清掉防抖计时器，再覆盖。
           // 否则 saveState 的防抖可能在覆盖之后才触发，把刚恢复的数据又写回旧的。
