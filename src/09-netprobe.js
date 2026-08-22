@@ -160,16 +160,30 @@ async function batchHarvestSites(ids) {
     addLog("官网抓取只有桌面版能用");
     return;
   }
+  if (runBusy("抓官网")) return;
 
   runBegin("抓官网联系方式", `准备抓 ${targets.length} 家公司`);
   let hit = 0;
+  let done = 0;
+  let interrupted = false;
   let unreachable = 0; // 站点打不开——不等于对方没公示联系方式
   for (let i = 0; i < targets.length; i += 1) {
-    if (!runIsActive()) break; // 用户中止
+    if (!runIsActive()) {
+      interrupted = true;
+      break;
+    }
     runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
     const r = await harvestProspectSite(targets[i].id, true);
+    done += 1;
     if (r === "website") hit += 1;
     else if (r === "unreachable") unreachable += 1;
+  }
+  if (interrupted) {
+    saveState();
+    render();
+    runEnd("aborted", `中途停了，跑完 ${done}/${targets.length} 家`);
+    addLog(runInterruptedNote("官网抓取", done, targets.length) + `已跑完的里面拿到 ${hit} 家联系方式。`);
+    return;
   }
   // 空壳站要单独统计。混在"没抓到"里报，用户会以为这批公司都没公示联系方式，
   // 顺手把好线索删了——实际只是我们抓不到。
@@ -601,13 +615,21 @@ async function batchProbeEmails(ids) {
     return;
   }
 
+  if (runBusy("探测邮箱")) return;
+
   runBegin("验证邮箱是否真实存在", `准备探测 ${targets.length} 个地址`);
   const tally = { valid: 0, invalid: 0, "catch-all": 0, unknown: 0 };
   let blockedNotice = "";
+  let probeDone = 0;
+  let probeInterrupted = false;
   for (let i = 0; i < targets.length; i += 1) {
-    if (!runIsActive()) break; // 用户中止
+    if (!runIsActive()) {
+      probeInterrupted = true;
+      break;
+    }
     runStep(`${i + 1}/${targets.length} · ${maskEmail(targets[i].email)}`);
     const r = await probeProspectEmail(targets[i].id, true);
+    probeDone += 1;
     if (r) tally[r.status] = (tally[r.status] || 0) + 1;
     if (r?.blockedNotice && !blockedNotice) blockedNotice = r.blockedNotice;
   }
@@ -629,6 +651,11 @@ async function batchProbeEmails(ids) {
         `家用/办公宽带的出口 IP 常年在公共黑名单上，大厂邮箱会直接拒绝来路不明的探测。` +
         `这些地址仍按原来的来源可信度判定；要确切验证可以配 Hunter，或换一条出口线路再试。`
     );
+  }
+  if (probeInterrupted) {
+    runEnd("aborted", `中途停了，测完 ${probeDone}/${targets.length} 个`);
+    addLog(runInterruptedNote("邮箱探测", probeDone, targets.length) + (parts.length ? `已测完的：${parts.join("、")}。` : ""));
+    return;
   }
   runDone(parts.join(" · ") || "没有结论", tally.invalid ? `${tally.invalid} 个发出去就是退信，建议先删掉` : "");
   addLog(`邮箱探测完成：${parts.join("、")}`);
@@ -1955,16 +1982,23 @@ async function batchScreenProspects(ids) {
     addLog("合规筛查只有桌面版能用");
     return;
   }
+  if (runBusy("筛查")) return;
 
   runBegin("合规筛查", `准备查 ${targets.length} 家公司`);
   let exact = 0;
   let partial = 0;
   let failed = 0;
+  let done = 0; // 真正跑完的家数——汇总必须按它报，不能按 targets.length
   let lastReason = "";
+  let interrupted = false;
   for (let i = 0; i < targets.length; i += 1) {
-    if (!runIsActive()) break;
+    if (!runIsActive()) {
+      interrupted = true;
+      break;
+    }
     runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
     const r = await screenProspect(targets[i].id, true);
+    done += 1;
     if (r && r.ok === false) {
       failed += 1;
       lastReason = r.reason;
@@ -1980,6 +2014,17 @@ async function batchScreenProspects(ids) {
      这是整个产品最不能含糊的一处：名单读不出来（打包漏了 data/、文件损坏、
      磁盘故障）时，如果照旧报"N 家都不在名单上"，用户就会拿着一个**根本没执行过
      的合规检查**去发货。主进程那边已经明确不返回"没命中"了，这里不能把它化掉。 */
+  // 被中途打断：先把"没跑到"这件事说清楚，再说跑完那部分的结果。
+  // 原来这里一律报 targets.length，于是用户点掉状态条后被告知"10 家都查过了"，
+  // 实际只查了 3 家——对合规功能来说这跟没查一样危险。
+  if (interrupted) {
+    addLog(runInterruptedNote("合规筛查", done, targets.length));
+    if (done) {
+      addLog(`已跑完的 ${done} 家里：精确命中 ${exact} 家、疑似 ${partial} 家` + (failed ? `，${failed} 家名单读取失败没查成` : ""));
+    }
+    return;
+  }
+
   if (failed) {
     const checked = targets.length - failed;
     runDone(

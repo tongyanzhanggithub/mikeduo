@@ -1998,7 +1998,7 @@ elements.runStatusAction?.addEventListener("click", () => {
   runDismiss();
   if (view) navigateTo(view);
 });
-elements.runStatusClose?.addEventListener("click", runDismiss);
+elements.runStatusClose?.addEventListener("click", runCancel);
 
 elements.exportJson.addEventListener("click", exportJson);
 if (elements.backupNow) elements.backupNow.addEventListener("click", exportJson);

@@ -39,7 +39,11 @@ export function createAppSandbox({ quiet = true } = {}) {
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
       addEventListener() {},
       removeEventListener() {},
-      appendChild(c) { this.children.push(c); return c; },
+      parentNode: null,
+      appendChild(c) { c.parentNode = this; this.children.push(c); return c; },
+      // showToast 会 firstChild.remove() 裁剪队列，缺了它会抛
+      get firstChild() { return this.children[0] || null; },
+      get lastChild() { return this.children[this.children.length - 1] || null; },
       removeChild() {},
       insertAdjacentHTML() {},
       setAttribute() {},
@@ -52,7 +56,16 @@ export function createAppSandbox({ quiet = true } = {}) {
       focus() {},
       blur() {},
       click() {},
-      remove() {},
+      // remove() 必须真的从父节点摘掉：showToast 里
+      // `while (children.length > 3) firstChild.remove()` 靠它收敛，
+      // 空实现会死循环（第一版就是这么挂住的）。
+      remove() {
+        const p = this.parentNode;
+        if (!p) return;
+        const i = p.children.indexOf(this);
+        if (i >= 0) p.children.splice(i, 1);
+        this.parentNode = null;
+      },
       scrollIntoView() {},
       getBoundingClientRect: () => ({ top: 0, left: 0, width: 100, height: 20, bottom: 20, right: 100 })
     };

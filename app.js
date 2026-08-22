@@ -453,7 +453,7 @@ window.addEventListener("unhandledrejection", (event) => {
   // Promise 失败多为网络/接口问题，不整页拦截，只记进诊断日志
 });
 
-window.__APP_V = "53ee9fff";
+window.__APP_V = "81a11ec9";
 
 const STORAGE_KEY = "foreign-trade-automation-v2";
 
@@ -1909,6 +1909,28 @@ let runTracker = { status: "idle", name: "", step: "", startedAt: 0, endedAt: 0,
 let runTickTimer = null;
 let runHideTimer = null;
 
+/* 同一时刻只允许一个批量任务。
+
+   runTracker 是单个全局变量，第二个任务 runBegin 会把它覆盖掉，
+   于是第一个任务下一轮 `runIsActive()` 就变成 false、静默截断——
+   实测：筛查跑到第 2 家时点了「抓官网」，筛查就停了，但仍然报"查了 10 家"。 */
+function runBusy(what) {
+  if (!runIsActive()) return false;
+  if (typeof addLog === "function") {
+    addLog(`「${runTracker.name}」还在跑（${runTracker.step || "进行中"}），先等它跑完再${what}——两个任务一起跑会互相打断`);
+  }
+  return true;
+}
+
+// 批量任务被中途打断时的统一说法。done 是**真正跑完的条数**，不是目标条数。
+function runInterruptedNote(label, done, total) {
+  const missed = total - done;
+  return (
+    `${label}中途停了：${total} 条里只跑完 ${done} 条，剩下 ${missed} 条**没有执行**。` +
+    `已跑完的部分保留，重新点一次会接着处理没跑的。`
+  );
+}
+
 function runBegin(name, step = "正在开始…") {
   clearTimeout(runHideTimer);
   runTracker = { status: "running", name, step, startedAt: Date.now(), endedAt: 0, action: null };
@@ -1959,6 +1981,21 @@ function runAbort(reason, action, name) {
   runEnd("aborted", reason, action);
 }
 
+/* 状态条上那个 × 一直同时是"隐藏提示"和"中止任务"两件事，而它只长得像前者。
+
+   三个批量循环都靠 `if (!runIsActive()) break` 判断是否继续，而 runDismiss
+   会把状态置为 idle——于是用户以为自己只是关掉一条提示，实际把跑了一半的
+   批量任务掐断了，而汇总还照常报"查了 N 家"（N 是目标数，不是实际完成数）。
+   合规筛查里这意味着：用户被告知 10 家都查过了，实际只查了 3 家。
+
+   现在拆成两个：跑着的时候点 × 是**明确的中止**（会记一条日志、汇总里也会说明），
+   没跑的时候才是单纯隐藏。按钮的 title 跟着状态变，别让人猜。 */
+function runCancel() {
+  if (runTracker.status !== "running") return runDismiss();
+  runEnd("aborted", "已中止（点了状态条上的 ×）");
+  if (typeof addLog === "function") addLog(`已中止「${runTracker.name}」——已完成的部分保留，没跑到的没有执行`);
+}
+
 function runDismiss() {
   clearTimeout(runHideTimer);
   runTracker = { ...runTracker, status: "idle", action: null };
@@ -1996,6 +2033,12 @@ function renderRunStatus() {
   if (elements.runStatusAction) {
     elements.runStatusAction.hidden = !runTracker.action;
     if (runTracker.action) elements.runStatusAction.textContent = runTracker.action.label;
+  }
+  // 跑着的时候这个 × 是"中止"，不是"隐藏"——写在 title 上，别让人点了才知道
+  if (elements.runStatusClose) {
+    const running = runTracker.status === "running";
+    elements.runStatusClose.title = running ? "中止这个任务" : "关闭";
+    elements.runStatusClose.setAttribute("aria-label", running ? "中止这个任务" : "关闭状态条");
   }
 }
 
@@ -12743,7 +12786,7 @@ elements.runStatusAction?.addEventListener("click", () => {
   runDismiss();
   if (view) navigateTo(view);
 });
-elements.runStatusClose?.addEventListener("click", runDismiss);
+elements.runStatusClose?.addEventListener("click", runCancel);
 
 elements.exportJson.addEventListener("click", exportJson);
 if (elements.backupNow) elements.backupNow.addEventListener("click", exportJson);
@@ -16582,16 +16625,30 @@ async function batchHarvestSites(ids) {
     addLog("官网抓取只有桌面版能用");
     return;
   }
+  if (runBusy("抓官网")) return;
 
   runBegin("抓官网联系方式", `准备抓 ${targets.length} 家公司`);
   let hit = 0;
+  let done = 0;
+  let interrupted = false;
   let unreachable = 0; // 站点打不开——不等于对方没公示联系方式
   for (let i = 0; i < targets.length; i += 1) {
-    if (!runIsActive()) break; // 用户中止
+    if (!runIsActive()) {
+      interrupted = true;
+      break;
+    }
     runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
     const r = await harvestProspectSite(targets[i].id, true);
+    done += 1;
     if (r === "website") hit += 1;
     else if (r === "unreachable") unreachable += 1;
+  }
+  if (interrupted) {
+    saveState();
+    render();
+    runEnd("aborted", `中途停了，跑完 ${done}/${targets.length} 家`);
+    addLog(runInterruptedNote("官网抓取", done, targets.length) + `已跑完的里面拿到 ${hit} 家联系方式。`);
+    return;
   }
   // 空壳站要单独统计。混在"没抓到"里报，用户会以为这批公司都没公示联系方式，
   // 顺手把好线索删了——实际只是我们抓不到。
@@ -17023,13 +17080,21 @@ async function batchProbeEmails(ids) {
     return;
   }
 
+  if (runBusy("探测邮箱")) return;
+
   runBegin("验证邮箱是否真实存在", `准备探测 ${targets.length} 个地址`);
   const tally = { valid: 0, invalid: 0, "catch-all": 0, unknown: 0 };
   let blockedNotice = "";
+  let probeDone = 0;
+  let probeInterrupted = false;
   for (let i = 0; i < targets.length; i += 1) {
-    if (!runIsActive()) break; // 用户中止
+    if (!runIsActive()) {
+      probeInterrupted = true;
+      break;
+    }
     runStep(`${i + 1}/${targets.length} · ${maskEmail(targets[i].email)}`);
     const r = await probeProspectEmail(targets[i].id, true);
+    probeDone += 1;
     if (r) tally[r.status] = (tally[r.status] || 0) + 1;
     if (r?.blockedNotice && !blockedNotice) blockedNotice = r.blockedNotice;
   }
@@ -17051,6 +17116,11 @@ async function batchProbeEmails(ids) {
         `家用/办公宽带的出口 IP 常年在公共黑名单上，大厂邮箱会直接拒绝来路不明的探测。` +
         `这些地址仍按原来的来源可信度判定；要确切验证可以配 Hunter，或换一条出口线路再试。`
     );
+  }
+  if (probeInterrupted) {
+    runEnd("aborted", `中途停了，测完 ${probeDone}/${targets.length} 个`);
+    addLog(runInterruptedNote("邮箱探测", probeDone, targets.length) + (parts.length ? `已测完的：${parts.join("、")}。` : ""));
+    return;
   }
   runDone(parts.join(" · ") || "没有结论", tally.invalid ? `${tally.invalid} 个发出去就是退信，建议先删掉` : "");
   addLog(`邮箱探测完成：${parts.join("、")}`);
@@ -18377,16 +18447,23 @@ async function batchScreenProspects(ids) {
     addLog("合规筛查只有桌面版能用");
     return;
   }
+  if (runBusy("筛查")) return;
 
   runBegin("合规筛查", `准备查 ${targets.length} 家公司`);
   let exact = 0;
   let partial = 0;
   let failed = 0;
+  let done = 0; // 真正跑完的家数——汇总必须按它报，不能按 targets.length
   let lastReason = "";
+  let interrupted = false;
   for (let i = 0; i < targets.length; i += 1) {
-    if (!runIsActive()) break;
+    if (!runIsActive()) {
+      interrupted = true;
+      break;
+    }
     runStep(`${i + 1}/${targets.length} · ${targets[i].company}`);
     const r = await screenProspect(targets[i].id, true);
+    done += 1;
     if (r && r.ok === false) {
       failed += 1;
       lastReason = r.reason;
@@ -18402,6 +18479,17 @@ async function batchScreenProspects(ids) {
      这是整个产品最不能含糊的一处：名单读不出来（打包漏了 data/、文件损坏、
      磁盘故障）时，如果照旧报"N 家都不在名单上"，用户就会拿着一个**根本没执行过
      的合规检查**去发货。主进程那边已经明确不返回"没命中"了，这里不能把它化掉。 */
+  // 被中途打断：先把"没跑到"这件事说清楚，再说跑完那部分的结果。
+  // 原来这里一律报 targets.length，于是用户点掉状态条后被告知"10 家都查过了"，
+  // 实际只查了 3 家——对合规功能来说这跟没查一样危险。
+  if (interrupted) {
+    addLog(runInterruptedNote("合规筛查", done, targets.length));
+    if (done) {
+      addLog(`已跑完的 ${done} 家里：精确命中 ${exact} 家、疑似 ${partial} 家` + (failed ? `，${failed} 家名单读取失败没查成` : ""));
+    }
+    return;
+  }
+
   if (failed) {
     const checked = targets.length - failed;
     runDone(

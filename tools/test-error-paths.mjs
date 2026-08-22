@@ -309,11 +309,96 @@ check("localStorage 里的存档花了 → 回落到全新 state，不是白屏"
   }
 });
 
-/* ================= ⑤ 打包完整性 =================
+/* ================= ⑤ 并发与中断 =================
+   批量任务跑一半被打断——用户点掉状态条、又点了另一个批量按钮、中途换了活动。
+   判据还是那条：**汇总必须按真正跑完的条数说话**，不能按目标条数。
+   "查了 10 家"而实际只查了 3 家，对合规功能来说和没查一样危险。 */
+
+console.log(String.fromCharCode(10) + "⑤ 并发与中断：汇总要按真正跑完的条数说");
+
+const TEN = () =>
+  Array.from({ length: 10 }, (_, i) => ({
+    id: `p${i}`,
+    company: `Company ${i}`,
+    market: "United States",
+    status: "新线索",
+    email: `a${i}@x.com`,
+    website: `https://x${i}.com`
+  }));
+
+await asyncCheck("跑到一半点掉状态条 → 不能报'查了 10 家'", async () => {
+  resetState(TEN());
+  let calls = 0;
+  ctx.window.mkd = {
+    screenEntity: async () => {
+      calls += 1;
+      if (calls === 3) ctx.runCancel(); // 用户点状态条上的 ×
+      return { ok: true, hit: false, builtAt: "2026-08-01", count: 40030 };
+    }
+  };
+  await ctx.batchScreenProspects(app.state.prospects.map((p) => p.id));
+  const text = logText();
+  assert(calls === 3, `没有真的停下来，跑了 ${calls} 家`);
+  assert(!/查了 10 家/.test(text), `报成了查满 10 家：${text}`);
+  assert(/只跑完 3 条|跑完 3 条/.test(text), `没有报出真实完成数：${text}`);
+  assert(/没有执行/.test(text), `没有说清楚剩下的没跑：${text}`);
+  assert(app.state.prospects.filter((p) => p.screening).length === 3, "已完成的部分没保留下来");
+});
+
+await asyncCheck("第二个批量任务不能把第一个掐断", async () => {
+  resetState(TEN());
+  let sCalls = 0;
+  let hCalls = 0;
+  ctx.window.mkd = {
+    screenEntity: async () => {
+      sCalls += 1;
+      await new Promise((r) => setTimeout(r, 1));
+      return { ok: true, hit: false, builtAt: "2026-08-01", count: 1 };
+    },
+    siteHarvest: async () => {
+      hCalls += 1;
+      return { ok: true, emails: [], phones: [], visited: ["/"] };
+    }
+  };
+  const ids = app.state.prospects.map((p) => p.id);
+  const first = ctx.batchScreenProspects(ids);
+  await new Promise((r) => setTimeout(r, 3));
+  const second = ctx.batchHarvestSites(ids); // 用户在筛查没跑完时又点了抓官网
+  await Promise.all([first, second]);
+  assert(sCalls === 10, `第一个任务被掐断了，只跑了 ${sCalls}/10`);
+  assert(hCalls === 0, `第二个任务在第一个没跑完时就开跑了（跑了 ${hCalls} 家）`);
+  assert(/还在跑/.test(logText()), `没有告诉用户为什么第二个没开跑：${logText()}`);
+});
+
+await asyncCheck("跑到一半换活动 → 不能把结果写进新活动的线索里", async () => {
+  resetState(TEN());
+  const otherCampaign = [{ id: "z0", company: "别的活动的公司", market: "Germany", status: "新线索", email: "z@z.com" }];
+  let calls = 0;
+  ctx.window.mkd = {
+    screenEntity: async () => {
+      calls += 1;
+      if (calls === 3) {
+        // 用户在筛查跑着的时候切了活动：整批线索被换掉
+        app.state.prospects = otherCampaign;
+      }
+      return { ok: true, hit: true, match: "exact", matchedName: "X", hits: [], level: "block", builtAt: "2026-08-01", count: 1 };
+    }
+  };
+  await ctx.batchScreenProspects(TEN().map((p) => p.id));
+  assert(calls >= 3, `mock 没被调够 3 次（${calls}），切活动这一步压根没发生，这条是空转`);
+  assert(app.state.prospects.length === 1, "切活动没生效，测的不是这个场景");
+  // 换进来的那条线索不该被写上筛查结果——它压根没被查过
+  assert(
+    !app.state.prospects.some((p) => p.id === "z0" && p.screening),
+    "把上一批的筛查结果写到了新活动的线索上"
+  );
+});
+
+/* ================= ⑥ 打包完整性 =================
    上面①测的是"文件坏了会不会明确失败"，这里测"文件到底会不会被打进包里"。
    data/ 漏进 build.files 是这个项目真实发生过的事故。 */
 
-console.log("\n⑤ 打包必须带上数据集（漏过一次）");
+console.log(String.fromCharCode(10) + "⑥ 打包必须带上数据集（漏过一次）");
 
 check("package.json 的 build.files 覆盖 data/ 和 docs/", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));

@@ -437,6 +437,28 @@ let runTracker = { status: "idle", name: "", step: "", startedAt: 0, endedAt: 0,
 let runTickTimer = null;
 let runHideTimer = null;
 
+/* 同一时刻只允许一个批量任务。
+
+   runTracker 是单个全局变量，第二个任务 runBegin 会把它覆盖掉，
+   于是第一个任务下一轮 `runIsActive()` 就变成 false、静默截断——
+   实测：筛查跑到第 2 家时点了「抓官网」，筛查就停了，但仍然报"查了 10 家"。 */
+function runBusy(what) {
+  if (!runIsActive()) return false;
+  if (typeof addLog === "function") {
+    addLog(`「${runTracker.name}」还在跑（${runTracker.step || "进行中"}），先等它跑完再${what}——两个任务一起跑会互相打断`);
+  }
+  return true;
+}
+
+// 批量任务被中途打断时的统一说法。done 是**真正跑完的条数**，不是目标条数。
+function runInterruptedNote(label, done, total) {
+  const missed = total - done;
+  return (
+    `${label}中途停了：${total} 条里只跑完 ${done} 条，剩下 ${missed} 条**没有执行**。` +
+    `已跑完的部分保留，重新点一次会接着处理没跑的。`
+  );
+}
+
 function runBegin(name, step = "正在开始…") {
   clearTimeout(runHideTimer);
   runTracker = { status: "running", name, step, startedAt: Date.now(), endedAt: 0, action: null };
@@ -487,6 +509,21 @@ function runAbort(reason, action, name) {
   runEnd("aborted", reason, action);
 }
 
+/* 状态条上那个 × 一直同时是"隐藏提示"和"中止任务"两件事，而它只长得像前者。
+
+   三个批量循环都靠 `if (!runIsActive()) break` 判断是否继续，而 runDismiss
+   会把状态置为 idle——于是用户以为自己只是关掉一条提示，实际把跑了一半的
+   批量任务掐断了，而汇总还照常报"查了 N 家"（N 是目标数，不是实际完成数）。
+   合规筛查里这意味着：用户被告知 10 家都查过了，实际只查了 3 家。
+
+   现在拆成两个：跑着的时候点 × 是**明确的中止**（会记一条日志、汇总里也会说明），
+   没跑的时候才是单纯隐藏。按钮的 title 跟着状态变，别让人猜。 */
+function runCancel() {
+  if (runTracker.status !== "running") return runDismiss();
+  runEnd("aborted", "已中止（点了状态条上的 ×）");
+  if (typeof addLog === "function") addLog(`已中止「${runTracker.name}」——已完成的部分保留，没跑到的没有执行`);
+}
+
 function runDismiss() {
   clearTimeout(runHideTimer);
   runTracker = { ...runTracker, status: "idle", action: null };
@@ -524,6 +561,12 @@ function renderRunStatus() {
   if (elements.runStatusAction) {
     elements.runStatusAction.hidden = !runTracker.action;
     if (runTracker.action) elements.runStatusAction.textContent = runTracker.action.label;
+  }
+  // 跑着的时候这个 × 是"中止"，不是"隐藏"——写在 title 上，别让人点了才知道
+  if (elements.runStatusClose) {
+    const running = runTracker.status === "running";
+    elements.runStatusClose.title = running ? "中止这个任务" : "关闭";
+    elements.runStatusClose.setAttribute("aria-label", running ? "中止这个任务" : "关闭状态条");
   }
 }
 
